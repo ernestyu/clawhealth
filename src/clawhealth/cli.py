@@ -101,6 +101,50 @@ def main(argv: list[str] | None = None) -> int:
         help="Show sync status and data freshness",
     )
 
+    # garmin trend-summary (recent days window)
+    sp_garmin_trend = sp_garmin_sub.add_parser(
+        "trend-summary",
+        help="Show recent trend summary over a sliding window of days",
+    )
+    sp_garmin_trend.add_argument(
+        "--days",
+        type=int,
+        default=7,
+        help="Window size in days (default: 7)",
+    )
+    sp_garmin_trend.add_argument(
+        "--db",
+        default="/opt/clawhealth/data/health.db",
+        help="Path to SQLite DB for UHM data (default: /opt/clawhealth/data/health.db)",
+    )
+    sp_garmin_trend.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured JSON instead of human-readable text",
+    )
+
+    # garmin flags (simple health flags based on recent days)
+    sp_garmin_flags = sp_garmin_sub.add_parser(
+        "flags",
+        help="Compute simple health flags over recent days",
+    )
+    sp_garmin_flags.add_argument(
+        "--days",
+        type=int,
+        default=7,
+        help="Window size in days (default: 7)",
+    )
+    sp_garmin_flags.add_argument(
+        "--db",
+        default="/opt/clawhealth/data/health.db",
+        help="Path to SQLite DB for UHM data (default: /opt/clawhealth/data/health.db)",
+    )
+    sp_garmin_flags.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured JSON instead of human-readable text",
+    )
+
     # garmin hrv-dump (internal / debugging endpoint for HRV mapping)
     sp_garmin_hrv = sp_garmin_sub.add_parser(
         "hrv-dump",
@@ -164,6 +208,14 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_garmin_sync(args)
         if args.garmin_cmd == "status":
             return _cmd_garmin_status(args)
+        if args.garmin_cmd == "trend-summary":
+            from .commands import cmd_garmin_trend_summary as _cmd_garmin_trend_summary
+
+            return _cmd_garmin_trend_summary(args)
+        if args.garmin_cmd == "flags":
+            from .commands import cmd_garmin_flags as _cmd_garmin_flags
+
+            return _cmd_garmin_flags(args)
         if args.garmin_cmd == "hrv-dump":
             from .commands import cmd_garmin_hrv_dump as _cmd_garmin_hrv_dump
 

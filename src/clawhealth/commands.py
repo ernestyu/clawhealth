@@ -349,6 +349,234 @@ def cmd_garmin_hrv_dump(args) -> int:
     return 0
 
 
+def _load_window_rows(db_path: Path, days: int) -> list[dict[str, Any]]:
+    """Load recent `days` rows from uhm_daily ordered by date_local ascending.
+
+    This helper is used by trend-summary and flags commands.
+    """
+
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT date_local, sleep_total_min, rhr_bpm, steps, distance_m, calories_total, weight_kg, "
+            "stress_avg, stress_max, stress_qualifier, body_battery_start, body_battery_end, "
+            "hrv_last_night_avg, hrv_weekly_avg, hrv_status, hrv_feedback "
+            "FROM uhm_daily ORDER BY date_local DESC LIMIT ?",
+            (days,),
+        )
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    # Reverse to ascending date order
+    result: list[dict[str, Any]] = []
+    for row in reversed(rows):
+        (
+            date_local,
+            sleep_total_min,
+            rhr_bpm,
+            steps,
+            distance_m,
+            calories_total,
+            weight_kg,
+            stress_avg,
+            stress_max,
+            stress_qualifier,
+            body_battery_start,
+            body_battery_end,
+            hrv_last_night_avg,
+            hrv_weekly_avg,
+            hrv_status,
+            hrv_feedback,
+        ) = row
+        result.append(
+            {
+                "date_local": date_local,
+                "sleep_total_min": sleep_total_min,
+                "rhr_bpm": rhr_bpm,
+                "steps": steps,
+                "distance_m": distance_m,
+                "calories_total": calories_total,
+                "weight_kg": weight_kg,
+                "stress_avg": stress_avg,
+                "stress_max": stress_max,
+                "stress_qualifier": stress_qualifier,
+                "body_battery_start": body_battery_start,
+                "body_battery_end": body_battery_end,
+                "hrv_last_night_avg": hrv_last_night_avg,
+                "hrv_weekly_avg": hrv_weekly_avg,
+                "hrv_status": hrv_status,
+                "hrv_feedback": hrv_feedback,
+            }
+        )
+    return result
+
+
+def cmd_garmin_trend_summary(args) -> int:
+    import os
+
+    db_path = Path(os.getenv("CLAWHEALTH_DB", args.db)).expanduser().resolve()
+    days = max(1, int(args.days or 7))
+
+    if not db_path.exists():
+        payload = {
+            "ok": False,
+            "error_code": "DB_NOT_FOUND",
+            "message": f"SQLite DB not found at {db_path}",
+        }
+        if args.json:
+            return _print_json(payload)
+        print("ERROR:", payload["message"])
+        return 1
+
+    rows = _load_window_rows(db_path, days)
+    if not rows:
+        payload = {"ok": True, "days": days, "message": "No UHM daily data", "data": None}
+        if args.json:
+            return _print_json(payload)
+        print("No UHM daily data in DB; run 'clawhealth garmin sync' first.")
+        return 0
+
+    # Compute simple averages over window
+    def _avg(key: str) -> float | None:
+        vals = [r[key] for r in rows if isinstance(r.get(key), (int, float))]
+        if not vals:
+            return None
+        return sum(vals) / len(vals)
+
+    trend = {
+        "window_days": len(rows),
+        "from": rows[0]["date_local"],
+        "to": rows[-1]["date_local"],
+        "sleep_total_min_avg": _avg("sleep_total_min"),
+        "rhr_bpm_avg": _avg("rhr_bpm"),
+        "steps_avg": _avg("steps"),
+        "distance_m_avg": _avg("distance_m"),
+        "calories_total_avg": _avg("calories_total"),
+        "stress_avg": _avg("stress_avg"),
+        "hrv_last_night_avg": _avg("hrv_last_night_avg"),
+    }
+
+    if args.json:
+        payload = {"ok": True, "days": len(rows), "trend": trend}
+        return _print_json(payload)
+
+    print(f"最近 {len(rows)} 天趋势（{rows[0]['date_local']} - {rows[-1]['date_local']}）")
+    if trend["sleep_total_min_avg"] is not None:
+        print(f"- 平均睡眠：{trend['sleep_total_min_avg'] / 60:.1f} 小时")
+    if trend["rhr_bpm_avg"] is not None:
+        print(f"- 平均静息心率：{trend['rhr_bpm_avg']:.0f} bpm")
+    if trend["steps_avg"] is not None:
+        print(f"- 平均步数：{trend['steps_avg']:.0f} 步")
+    if trend["calories_total_avg"] is not None:
+        print(f"- 平均总能量消耗：{trend['calories_total_avg']:.0f} kcal")
+    if trend["stress_avg"] is not None:
+        print(f"- 平均压力得分：{trend['stress_avg']:.0f}")
+    if trend["hrv_last_night_avg"] is not None:
+        print(f"- HRV 昨夜平均：{trend['hrv_last_night_avg']:.0f} ms")
+
+    return 0
+
+
+def cmd_garmin_flags(args) -> int:
+    import os
+
+    db_path = Path(os.getenv("CLAWHEALTH_DB", args.db)).expanduser().resolve()
+    days = max(1, int(args.days or 7))
+
+    if not db_path.exists():
+        payload = {
+            "ok": False,
+            "error_code": "DB_NOT_FOUND",
+            "message": f"SQLite DB not found at {db_path}",
+        }
+        if args.json:
+            return _print_json(payload)
+        print("ERROR:", payload["message"])
+        return 1
+
+    rows = _load_window_rows(db_path, days)
+    if not rows:
+        payload = {"ok": True, "days": days, "message": "No UHM daily data", "flags": []}
+        if args.json:
+            return _print_json(payload)
+        print("No UHM daily data in DB; run 'clawhealth garmin sync' first.")
+        return 0
+
+    # Helpers
+    def _avg(key: str) -> float | None:
+        vals = [r[key] for r in rows if isinstance(r.get(key), (int, float))]
+        if not vals:
+            return None
+        return sum(vals) / len(vals)
+
+    flags: list[dict[str, Any]] = []
+
+    # 1) Sleep low: 平均睡眠 < 6.5 小时
+    sleep_avg_min = _avg("sleep_total_min")
+    if sleep_avg_min is not None and sleep_avg_min < 6.5 * 60:
+        flags.append(
+            {
+                "code": "SLEEP_LOW",
+                "severity": "warning",
+                "message": f"最近 {len(rows)} 天平均睡眠约 {sleep_avg_min/60:.1f} 小时（低于 6.5h）",
+            }
+        )
+
+    # 2) HRV low: HRV 昨夜平均 <  baseline-ish 阈值（简单用绝对值 30ms 作为示例）
+    hrv_avg = _avg("hrv_last_night_avg")
+    if hrv_avg is not None and hrv_avg < 30:
+        flags.append(
+            {
+                "code": "HRV_LOW",
+                "severity": "warning",
+                "message": f"最近 {len(rows)} 天 HRV 昨夜平均约 {hrv_avg:.0f} ms，略偏低",
+            }
+        )
+
+    # 3) Stress high: 平均压力 > 60
+    stress_avg = _avg("stress_avg")
+    if stress_avg is not None and stress_avg > 60:
+        flags.append(
+            {
+                "code": "STRESS_HIGH",
+                "severity": "warning",
+                "message": f"最近 {len(rows)} 天平均压力得分约 {stress_avg:.0f}，偏高",
+            }
+        )
+
+    # 4) Steps low: 平均步数 < 5000
+    steps_avg = _avg("steps")
+    if steps_avg is not None and steps_avg < 5000:
+        flags.append(
+            {
+                "code": "STEPS_LOW",
+                "severity": "info",
+                "message": f"最近 {len(rows)} 天平均步数约 {steps_avg:.0f}，偏少",
+            }
+        )
+
+    payload = {
+        "ok": True,
+        "days": len(rows),
+        "from": rows[0]["date_local"],
+        "to": rows[-1]["date_local"],
+        "flags": flags,
+    }
+
+    if args.json:
+        return _print_json(payload)
+
+    print(f"最近 {len(rows)} 天健康 flags（{rows[0]['date_local']} - {rows[-1]['date_local']}）：")
+    if not flags:
+        print("- 未检测到明显异常（基于当前简单阈值）")
+        return 0
+    for f in flags:
+        print(f"- [{f['severity']}] {f['code']}: {f['message']}")
+    return 0
+
+
 def cmd_daily_summary(args) -> int:
     from datetime import date
     import os
