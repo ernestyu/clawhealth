@@ -1,12 +1,15 @@
 """CLI entrypoint for clawhealth.
 
-Bootstrap structure only. Planned shape:
+CLI-first design:
 
-    clawhealth garmin sync --since 2026-03-01
+    clawhealth garmin login --username ... --password-file ... [--mfa-code ...]
+    clawhealth garmin sync --since 2026-03-01 --until 2026-03-03
+    clawhealth garmin status --json
     clawhealth daily-summary --date 2026-03-02
 
-For now, the commands are stubs and will print a clear "not implemented"
-message.
+Garmin Phase 1 implementation will be built on top of python-garminconnect
+and garth. For now, the commands are stubs and will print a clear
+"not implemented" message.
 """
 
 from __future__ import annotations
@@ -26,13 +29,68 @@ def main(argv: list[str] | None = None) -> int:
     sp_garmin = sub.add_parser("garmin", help="Garmin-related commands")
     sp_garmin_sub = sp_garmin.add_subparsers(dest="garmin_cmd", required=True)
 
+    # garmin login
+    sp_garmin_login = sp_garmin_sub.add_parser(
+        "login",
+        help="Perform Garmin login (username/password/MFA) and persist session (stub)",
+    )
+    sp_garmin_login.add_argument("--username", help="Garmin account username/email")
+    sp_garmin_login.add_argument(
+        "--password-file",
+        help="Path to file containing password (one line)",
+    )
+    sp_garmin_login.add_argument(
+        "--config-dir",
+        default="/opt/clawhealth/config",
+        help="Directory to store Garmin session/config (default: /opt/clawhealth/config)",
+    )
+    sp_garmin_login.add_argument(
+        "--mfa-code",
+        help="MFA/OTP code when a challenge is required",
+    )
+    sp_garmin_login.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured JSON instead of human-readable text",
+    )
+
+    # garmin sync
     sp_garmin_sync = sp_garmin_sub.add_parser(
         "sync",
-        help="Sync Garmin data into a local cache (stub)",
+        help="Sync Garmin data into a local SQLite UHM DB (stub)",
+    )
+    sp_garmin_sync.add_argument("--since", help="Start date YYYY-MM-DD for sync")
+    sp_garmin_sync.add_argument("--until", help="End date YYYY-MM-DD for sync")
+    sp_garmin_sync.add_argument(
+        "--config-dir",
+        default="/opt/clawhealth/config",
+        help="Directory with Garmin session/config (default: /opt/clawhealth/config)",
     )
     sp_garmin_sync.add_argument(
-        "--since",
-        help="Sync data since this date (YYYY-MM-DD). Optional; semantics TBD",
+        "--db",
+        default="/opt/clawhealth/data/health.db",
+        help="Path to SQLite DB for UHM data (default: /opt/clawhealth/data/health.db)",
+    )
+    sp_garmin_sync.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured JSON instead of human-readable text",
+    )
+
+    # garmin status
+    sp_garmin_status = sp_garmin_sub.add_parser(
+        "status",
+        help="Show sync status and data freshness (stub)",
+    )
+    sp_garmin_status.add_argument(
+        "--db",
+        default="/opt/clawhealth/data/health.db",
+        help="Path to SQLite DB for UHM data (default: /opt/clawhealth/data/health.db)",
+    )
+    sp_garmin_status.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured JSON instead of human-readable text",
     )
 
     # Aggregated summaries for agents/humans
@@ -47,17 +105,30 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    if args.command == "garmin" and args.garmin_cmd == "sync":
-        sys.stderr.write(
-            "ERROR: 'clawhealth garmin sync' is not implemented yet. "
-            "This is a bootstrap CLI; provider integration will be added later.\n"
-        )
-        return 2
+    if args.command == "garmin":
+        if args.garmin_cmd == "login":
+            sys.stderr.write(
+                "ERROR: 'clawhealth garmin login' is not implemented yet. "
+                "Planned: CLI-based login via python-garminconnect + garth (with MFA).\n"
+            )
+            return 2
+        if args.garmin_cmd == "sync":
+            sys.stderr.write(
+                "ERROR: 'clawhealth garmin sync' is not implemented yet. "
+                "Planned: sync Garmin data into a local SQLite UHM DB.\n"
+            )
+            return 2
+        if args.garmin_cmd == "status":
+            sys.stderr.write(
+                "ERROR: 'clawhealth garmin status' is not implemented yet. "
+                "Planned: show sync status and data freshness from SQLite.\n"
+            )
+            return 2
 
     if args.command == "daily-summary":
         sys.stderr.write(
             "ERROR: 'clawhealth daily-summary' is not implemented yet. "
-            "This will eventually summarize daily health metrics for agents.\n"
+            "Planned: daily human/agent-friendly summary from UHM.\n"
         )
         return 2
 
