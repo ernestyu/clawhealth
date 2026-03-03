@@ -16,14 +16,15 @@ options:
 
 
 ## clawhealth garmin --help
-usage: clawhealth garmin [-h] {login,sync,status} ...
+usage: clawhealth garmin [-h] {login,sync,status,hrv-dump} ...
 
 positional arguments:
-  {login,sync,status}
+  {login,sync,status,hrv-dump}
     login               Perform Garmin login (username/password/MFA) and
-                        persist session (stub)
-    sync                Sync Garmin data into a local SQLite UHM DB (stub)
-    status              Show sync status and data freshness (stub)
+                        persist session
+    sync                Sync Garmin data into a local SQLite UHM DB
+    status              Show sync status and data freshness
+    hrv-dump            Dump raw HRV JSON for a given date (and persist to DB)
 
 options:
   -h, --help            show this help message and exit
@@ -74,6 +75,21 @@ options:
                         /opt/clawhealth/data/health.db)
   --json                Output structured JSON instead of human-readable
                         text
+
+
+## clawhealth garmin hrv-dump --help
+usage: clawhealth garmin hrv-dump [-h] --date DATE [--config-dir CONFIG_DIR]
+                                  [--out OUT] [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --date DATE           Target date (YYYY-MM-DD) for HRV data
+  --config-dir CONFIG_DIR
+                        Directory with Garmin session/config (default:
+                        /opt/clawhealth/config)
+  --out OUT             Optional path to write raw HRV JSON (default: print to
+                        stdout)
+  --json                Output structured JSON status instead of raw payload
 
 
 ## clawhealth daily-summary --help

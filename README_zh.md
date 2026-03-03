@@ -27,7 +27,7 @@
 
 ---
 
-## Garmin 第一阶段：CLI 形状概览
+## Garmin 第一阶段（已实现）：CLI 形状概览
 
 ### 1. 登录（含 MFA）
 
@@ -96,23 +96,25 @@ Agent 可以用它判断：
 ```bash
 clawhealth daily-summary \
   --date 2026-03-02 \
-  --db /opt/clawhealth/data/health.db
+  --db /opt/clawhealth/data/health.db \
+  [--json]
 ```
 
 输出示例（人类友好）：
 
 ```text
-2026-03-02 健康概要（来源：Garmin，本地 UHM_v1）
-- 睡眠：7.4 小时，睡眠得分 82（深睡 1.5h，REM 2.0h）
-- 静息心率：52 bpm
-- 步数：10,432 步（约 7.8 km）
-- 总能量消耗：2,150 kcal（活动 650 kcal）
-- 压力：日均 23 / 峰值 65
-- 身体电量：起床 78 → 睡前 43
-- 体重：68.2 kg
+2026-03-02 健康概要（来源：Garmin，本地 uhm_v1）
+- 睡眠：6.5 小时
+- 静息心率：60 bpm
+- 步数：5030 步（约 4.2 km）
+- 总能量消耗：2482 kcal
+- 体重：--（暂无称重数据）
+- 压力：平均 47，峰值 97，VERY_STRESSFUL
+- 身体电量：起床 33 → 当前 5
+- HRV：昨夜平均 40 ms，状态：BALANCED
 ```
 
-后续可以增加 `--json` 输出结构化版本，便于 Agent 进一步加工。
+`--json` 模式下会返回结构化 JSON，包括 `sleep_total_min`、`rhr_bpm`、`steps`、`distance_m`、`calories_total`、`weight_kg`、`stress_*`、`body_battery_*`、`hrv_*` 等字段，便于 Agent 进行二次加工。
 
 ---
 

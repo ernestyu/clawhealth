@@ -11,8 +11,8 @@ The primary goal is to let your OpenClaw agents understand your daily
 sleep, training load, and recovery trends based on real signals rather
 than guesswork.
 
-> Status: design-in-progress. CLI shape and technical route are defined;
-> Garmin Phase 1 implementation is next.
+> Status: Garmin Phase 1 implemented (login/sync/status/daily-summary + HRV/stress/body battery).
+> CLI help and docs are kept in sync with the current implementation.
 
 ---
 
@@ -32,7 +32,7 @@ For a detailed technical plan (in Chinese), see
 
 ---
 
-## CLI overview (planned Garmin Phase 1)
+## CLI overview (Garmin Phase 1)
 
 ```bash
 # 1) Login (username/password/MFA), persist session tokens
@@ -42,6 +42,9 @@ clawhealth garmin login \
   --config-dir /opt/clawhealth/config \
   [--mfa-code 123456] \
   [--json]
+
+# Environment-driven defaults (optional)
+# CLAWHEALTH_GARMIN_USERNAME, CLAWHEALTH_GARMIN_PASSWORD_FILE, CLAWHEALTH_CONFIG_DIR
 
 # 2) Sync Garmin data into a local SQLite UHM database
 clawhealth garmin sync \
@@ -56,10 +59,18 @@ clawhealth garmin status \
   --db /opt/clawhealth/data/health.db \
   [--json]
 
-# 4) Get a human/agent-friendly daily summary
+# 4) Get a human/agent-friendly daily summary (with HRV/stress/body battery)
 clawhealth daily-summary \
   --date 2026-03-02 \
-  --db /opt/clawhealth/data/health.db
+  --db /opt/clawhealth/data/health.db \
+  [--json]
+
+# 5) (Optional) Dump raw HRV JSON and persist into DB
+clawhealth garmin hrv-dump \
+  --date 2026-03-02 \
+  --config-dir /opt/clawhealth/config \
+  --out /tmp/garmin_hrv_2026-03-02.json \
+  [--json]
 ```
 
 All commands are designed to be:
