@@ -374,6 +374,7 @@ def cmd_daily_summary(args) -> int:
         cur = conn.cursor()
         cur.execute(
             "SELECT sleep_total_min, rhr_bpm, steps, distance_m, calories_total, weight_kg, "
+            "stress_avg, stress_max, stress_qualifier, body_battery_start, body_battery_end, "
             "hrv_last_night_avg, hrv_weekly_avg, hrv_status, hrv_feedback, extra_metrics "
             "FROM uhm_daily WHERE date_local = ?",
             (target_date,),
@@ -393,6 +394,11 @@ def cmd_daily_summary(args) -> int:
             distance_m,
             calories_total,
             weight_kg,
+            stress_avg,
+            stress_max,
+            stress_qualifier,
+            body_battery_start,
+            body_battery_end,
             hrv_last_night_avg,
             hrv_weekly_avg,
             hrv_status,
@@ -412,6 +418,11 @@ def cmd_daily_summary(args) -> int:
             "distance_m": distance_m,
             "calories_total": calories_total,
             "weight_kg": weight_kg,
+            "stress_avg": stress_avg,
+            "stress_max": stress_max,
+            "stress_qualifier": stress_qualifier,
+            "body_battery_start": body_battery_start,
+            "body_battery_end": body_battery_end,
             "hrv_last_night_avg": hrv_last_night_avg,
             "hrv_weekly_avg": hrv_weekly_avg,
             "hrv_status": hrv_status,
@@ -433,6 +444,17 @@ def cmd_daily_summary(args) -> int:
         print(f"- 总能量消耗：{calories_total:.0f} kcal")
     if weight_kg is not None:
         print(f"- 体重：{weight_kg:.1f} kg")
+    if stress_avg is not None or stress_max is not None or stress_qualifier:
+        parts = []
+        if stress_avg is not None:
+            parts.append(f"平均 {stress_avg}")
+        if stress_max is not None:
+            parts.append(f"峰值 {stress_max}")
+        if stress_qualifier:
+            parts.append(str(stress_qualifier))
+        print("- 压力：" + "，".join(parts))
+    if body_battery_start is not None or body_battery_end is not None:
+        print(f"- 身体电量：起床 {body_battery_start or '?'} → 当前 {body_battery_end or '?'}")
     if hrv_last_night_avg is not None or hrv_status is not None:
         # HRV 以“昨夜平均 + 状态”形式展示
         parts = []

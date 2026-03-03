@@ -40,6 +40,13 @@ def ensure_schema(db_path: Path) -> None:
                 distance_m REAL,
                 calories_total REAL,
                 weight_kg REAL,
+                -- Stress metrics
+                stress_avg INTEGER,
+                stress_max INTEGER,
+                stress_qualifier TEXT,
+                -- Body Battery (estimated start/end of day)
+                body_battery_start REAL,
+                body_battery_end REAL,
                 -- HRV metrics (ms) and status
                 hrv_last_night_avg REAL,
                 hrv_weekly_avg REAL,
@@ -128,6 +135,14 @@ def map_garmin_daily(date_str: str, stats: Dict[str, Any]) -> Dict[str, Any]:
     # 体重：优先用 weight（通常为 kg），否则退回 weightKilograms/weight_kg
     weight_kg = stats.get("weight") or stats.get("weightKilograms") or stats.get("weight_kg")
 
+    # Stress & Body Battery (日级)
+    stress_avg = stats.get("averageStressLevel")
+    stress_max = stats.get("maxStressLevel")
+    stress_qualifier = stats.get("stressQualifier")
+
+    body_battery_start = stats.get("bodyBatteryAtWakeTime")
+    body_battery_end = stats.get("bodyBatteryMostRecentValue")
+
     extra_metrics = {
         k: v
         for k, v in stats.items()
@@ -149,6 +164,11 @@ def map_garmin_daily(date_str: str, stats: Dict[str, Any]) -> Dict[str, Any]:
             "weight",
             "weightKilograms",
             "weight_kg",
+            "averageStressLevel",
+            "maxStressLevel",
+            "stressQualifier",
+            "bodyBatteryAtWakeTime",
+            "bodyBatteryMostRecentValue",
         }
     }
 
@@ -164,6 +184,16 @@ def map_garmin_daily(date_str: str, stats: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(calories_total, (int, float))
         else None,
         "weight_kg": float(weight_kg) if isinstance(weight_kg, (int, float)) else None,
+        # Stress & Body Battery
+        "stress_avg": int(stress_avg) if isinstance(stress_avg, (int, float)) else None,
+        "stress_max": int(stress_max) if isinstance(stress_max, (int, float)) else None,
+        "stress_qualifier": str(stress_qualifier) if stress_qualifier is not None else None,
+        "body_battery_start": float(body_battery_start)
+        if isinstance(body_battery_start, (int, float))
+        else None,
+        "body_battery_end": float(body_battery_end)
+        if isinstance(body_battery_end, (int, float))
+        else None,
         # HRV fields are populated separately from garmin_hrv_raw
         "hrv_last_night_avg": None,
         "hrv_weekly_avg": None,
