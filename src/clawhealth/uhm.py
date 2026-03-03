@@ -89,17 +89,29 @@ def map_garmin_daily(date_str: str, stats: Dict[str, Any]) -> Dict[str, Any]:
 
     steps = stats.get("totalSteps") or stats.get("steps")
     distance_m = stats.get("totalDistanceMeters") or stats.get("distance")
-    calories_total = stats.get("totalCalories") or stats.get("calories")
+    # 优先使用千卡相关字段，兼容不同 key 命名
+    calories_total = (
+        stats.get("totalKilocalories")
+        or stats.get("wellnessKilocalories")
+        or stats.get("totalCalories")
+        or stats.get("calories")
+    )
     rhr = stats.get("restingHeartRate") or stats.get("resting_hr")
 
+    # 睡眠：优先用顶层 sleepingSeconds；否则退回 sleep/sleepData 字段
     sleep_total_min: Optional[int] = None
-    sleep = stats.get("sleep") or stats.get("sleepData")
-    if isinstance(sleep, dict):
-        dur_sec = sleep.get("duration") or sleep.get("durationInSeconds")
-        if isinstance(dur_sec, (int, float)):
-            sleep_total_min = int(dur_sec // 60)
+    sleeping_sec = stats.get("sleepingSeconds")
+    if isinstance(sleeping_sec, (int, float)):
+        sleep_total_min = int(sleeping_sec // 60)
+    else:
+        sleep = stats.get("sleep") or stats.get("sleepData")
+        if isinstance(sleep, dict):
+            dur_sec = sleep.get("duration") or sleep.get("durationInSeconds")
+            if isinstance(dur_sec, (int, float)):
+                sleep_total_min = int(dur_sec // 60)
 
-    weight_kg = stats.get("weightKilograms") or stats.get("weight_kg")
+    # 体重：优先用 weight（通常为 kg），否则退回 weightKilograms/weight_kg
+    weight_kg = stats.get("weight") or stats.get("weightKilograms") or stats.get("weight_kg")
 
     extra_metrics = {
         k: v
@@ -110,12 +122,16 @@ def map_garmin_daily(date_str: str, stats: Dict[str, Any]) -> Dict[str, Any]:
             "steps",
             "totalDistanceMeters",
             "distance",
+            "totalKilocalories",
+            "wellnessKilocalories",
             "totalCalories",
             "calories",
             "restingHeartRate",
             "resting_hr",
             "sleep",
             "sleepData",
+            "sleepingSeconds",
+            "weight",
             "weightKilograms",
             "weight_kg",
         }
