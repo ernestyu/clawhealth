@@ -320,6 +320,15 @@ def cmd_garmin_hrv_dump(args) -> int:
     db_path = Path(os.getenv("CLAWHEALTH_DB", "/opt/clawhealth/data/health.db")).expanduser().resolve()
     upsert_hrv_raw(db_path, target_date, raw or {})
 
+    # Also map HRV summary into UHM if a daily row already exists.
+    from .uhm import map_hrv_into_uhm
+
+    try:
+        map_hrv_into_uhm(db_path, target_date)
+    except Exception:
+        # HRV mapping should not break the dump command; raw payload is persisted.
+        pass
+
     out_path = getattr(args, "out", None)
     if out_path:
         out = Path(out_path).expanduser().resolve()
@@ -364,7 +373,8 @@ def cmd_daily_summary(args) -> int:
     try:
         cur = conn.cursor()
         cur.execute(
-            "SELECT sleep_total_min, rhr_bpm, steps, distance_m, calories_total, weight_kg, extra_metrics "
+            "SELECT sleep_total_min, rhr_bpm, steps, distance_m, calories_total, weight_kg, "
+            "hrv_last_night_avg, hrv_weekly_avg, hrv_status, hrv_feedback, extra_metrics "
             "FROM uhm_daily WHERE date_local = ?",
             (target_date,),
         )
@@ -383,6 +393,10 @@ def cmd_daily_summary(args) -> int:
             distance_m,
             calories_total,
             weight_kg,
+            hrv_last_night_avg,
+            hrv_weekly_avg,
+            hrv_status,
+            hrv_feedback,
             extra_metrics_json,
         ) = row
     finally:
@@ -398,6 +412,10 @@ def cmd_daily_summary(args) -> int:
             "distance_m": distance_m,
             "calories_total": calories_total,
             "weight_kg": weight_kg,
+            "hrv_last_night_avg": hrv_last_night_avg,
+            "hrv_weekly_avg": hrv_weekly_avg,
+            "hrv_status": hrv_status,
+            "hrv_feedback": hrv_feedback,
             "mapping_version": UHM_MAPPING_VERSION,
         }
         return _print_json(payload)
@@ -415,5 +433,13 @@ def cmd_daily_summary(args) -> int:
         print(f"- 总能量消耗：{calories_total:.0f} kcal")
     if weight_kg is not None:
         print(f"- 体重：{weight_kg:.1f} kg")
+    if hrv_last_night_avg is not None or hrv_status is not None:
+        # HRV 以“昨夜平均 + 状态”形式展示
+        parts = []
+        if hrv_last_night_avg is not None:
+            parts.append(f"昨夜平均 {hrv_last_night_avg:.0f} ms")
+        if hrv_status:
+            parts.append(f"状态：{hrv_status}")
+        print("- HRV：" + "，".join(parts))
 
     return 0

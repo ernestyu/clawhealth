@@ -40,6 +40,11 @@ def ensure_schema(db_path: Path) -> None:
                 distance_m REAL,
                 calories_total REAL,
                 weight_kg REAL,
+                -- HRV metrics (ms) and status
+                hrv_last_night_avg REAL,
+                hrv_weekly_avg REAL,
+                hrv_status TEXT,
+                hrv_feedback TEXT,
                 extra_metrics TEXT,
                 source_vendor TEXT NOT NULL DEFAULT 'garmin',
                 driver_version TEXT,
@@ -159,6 +164,11 @@ def map_garmin_daily(date_str: str, stats: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(calories_total, (int, float))
         else None,
         "weight_kg": float(weight_kg) if isinstance(weight_kg, (int, float)) else None,
+        # HRV fields are populated separately from garmin_hrv_raw
+        "hrv_last_night_avg": None,
+        "hrv_weekly_avg": None,
+        "hrv_status": None,
+        "hrv_feedback": None,
         "extra_metrics": json.dumps(extra_metrics, ensure_ascii=False),
         "source_vendor": "garmin",
         "driver_version": DRIVER_VERSION,
@@ -226,6 +236,55 @@ def upsert_hrv_raw(db_path: Path, date_str: str, payload: Dict[str, Any]) -> Non
             "ON CONFLICT(date_local) DO UPDATE SET payload=excluded.payload, ingested_at=excluded.ingested_at"
         )
         conn.execute(sql, row)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def map_hrv_into_uhm(db_path: Path, date_str: str) -> None:
+    """Map HRV raw payload for date_str into uhm_daily HRV fields.
+
+    This reads garmin_hrv_raw.payload, extracts summary metrics, and updates
+    the corresponding uhm_daily row if present.
+    """
+
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT payload FROM garmin_hrv_raw WHERE date_local = ?",
+            (date_str,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return
+        payload = json.loads(row[0])
+        summary = payload.get("hrvSummary") or {}
+        baseline = summary.get("baseline") or {}
+
+        hrv_last_night_avg = summary.get("lastNightAvg")
+        hrv_weekly_avg = summary.get("weeklyAvg")
+        hrv_status = summary.get("status")
+        hrv_feedback = summary.get("feedbackPhrase")
+
+        # 目前先只写 summary 指标，如后续需要 baseline 范围可扩展。
+        cur.execute(
+            """
+            UPDATE uhm_daily
+               SET hrv_last_night_avg = :hrv_last_night_avg,
+                   hrv_weekly_avg = :hrv_weekly_avg,
+                   hrv_status = :hrv_status,
+                   hrv_feedback = :hrv_feedback
+             WHERE date_local = :date_local
+            """,
+            {
+                "date_local": date_str,
+                "hrv_last_night_avg": hrv_last_night_avg,
+                "hrv_weekly_avg": hrv_weekly_avg,
+                "hrv_status": hrv_status,
+                "hrv_feedback": hrv_feedback,
+            },
+        )
         conn.commit()
     finally:
         conn.close()
