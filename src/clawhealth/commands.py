@@ -473,10 +473,10 @@ def _load_window_rows(db_path: Path, days: int) -> list[dict[str, Any]]:
     conn = sqlite3.connect(db_path)
     try:
         cur = conn.cursor()
+        # Trend/flags 目前只用到部分字段，这里只取必要列，避免解包错位
         cur.execute(
             "SELECT date_local, sleep_total_min, rhr_bpm, steps, distance_m, calories_total, weight_kg, "
             "stress_avg, stress_max, stress_qualifier, body_battery_start, body_battery_end, "
-            "spo2_avg, spo2_lowest, respiration_avg, respiration_lowest, respiration_highest, "
             "hrv_last_night_avg, hrv_weekly_avg, hrv_status, hrv_feedback "
             "FROM uhm_daily ORDER BY date_local DESC LIMIT ?",
             (days,),
@@ -520,11 +520,6 @@ def _load_window_rows(db_path: Path, days: int) -> list[dict[str, Any]]:
                 "stress_qualifier": stress_qualifier,
                 "body_battery_start": body_battery_start,
                 "body_battery_end": body_battery_end,
-                "spo2_avg": spo2_avg,
-                "spo2_lowest": spo2_lowest,
-                "respiration_avg": respiration_avg,
-                "respiration_lowest": respiration_lowest,
-                "respiration_highest": respiration_highest,
                 "hrv_last_night_avg": hrv_last_night_avg,
                 "hrv_weekly_avg": hrv_weekly_avg,
                 "hrv_status": hrv_status,
