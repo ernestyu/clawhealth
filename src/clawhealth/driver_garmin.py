@@ -133,12 +133,25 @@ def resume_session(config_dir: Path) -> bool:
 
 
 def make_client(config_dir: Path) -> Garmin:
-    """Construct a Garmin client using the resumed garth session.
+    """Construct a Garmin client using existing Garth session.
 
-    Assumes resume_session() has already been called.
+    We rely on python-garminconnect's built-in Garth integration:
+    - Garmin instance has a .garth attribute used by Garmin.login().
+    - If GARMINTOKENS is not set or tokens are invalid, Garmin.login()
+      will fall back to credential flow (which we want to avoid here).
+
+    For Phase 1 we assume that Garmintokens are managed by garth and that
+    our sync uses an already-authenticated environment.
     """
 
-    return Garmin(session=garth.client)  # type: ignore[arg-type]
+    client = Garmin()
+    # Point GARMINTOKENS to our garth token directory so Garmin can
+    # reuse the same token store. This avoids re-entering credentials.
+    import os
+
+    os.environ.setdefault("GARMINTOKENS", str(config_dir))
+    client.login(tokenstore=str(config_dir))
+    return client
 
 
 def fetch_daily_summary(
