@@ -28,7 +28,8 @@ def cmd_garmin_login(args) -> int:
 
     username = args.username or os.getenv("CLAWHEALTH_GARMIN_USERNAME")
     password_file = args.password_file or os.getenv("CLAWHEALTH_GARMIN_PASSWORD_FILE")
-    config_dir = Path(args.config_dir).expanduser().resolve()
+    config_dir_val = os.getenv("CLAWHEALTH_CONFIG_DIR", args.config_dir)
+    config_dir = Path(config_dir_val).expanduser().resolve()
 
     if not username and not password_file:
         msg = "username and --password-file (or CLAWHEALTH_GARMIN_*) are required"
