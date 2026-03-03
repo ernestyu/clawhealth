@@ -309,10 +309,15 @@ def cmd_garmin_training_metrics(args) -> int:
     ok = True
     details: dict[str, Any] = {}
 
+    # Use today as default target date for training-related metrics.
+    from datetime import date as _date
+
+    today_str = _date.today().isoformat()
+
     # Morning training readiness
     try:
-        tr = client.get_morning_training_readiness()
-        calendar_date = tr.get("calendarDate")
+        tr = client.get_morning_training_readiness(today_str)
+        calendar_date = tr.get("calendarDate") if isinstance(tr, dict) else today_str
         if calendar_date:
             upsert_training_readiness_raw(db_path, calendar_date, tr)
             map_training_readiness_into_uhm(db_path, tr)
@@ -323,7 +328,7 @@ def cmd_garmin_training_metrics(args) -> int:
 
     # Training status
     try:
-        ts = client.get_training_status()
+        ts = client.get_training_status(today_str)
         # training status payload may cover multiple devices; mapping helper handles date
         upsert_training_status_raw(db_path, "most_recent", ts)
         map_training_status_into_uhm(db_path, ts)
@@ -332,12 +337,12 @@ def cmd_garmin_training_metrics(args) -> int:
         ok = False
         details["training_status"] = {"ok": False, "error": str(exc)}
 
-    # Endurance score
+    # Endurance score (single-day precision for today)
     try:
-        es = client.get_endurance_score()
-        # Use endDate or calendarDate inside DTO as key
+        es = client.get_endurance_score(today_str)
+        # Use calendarDate inside DTO as key
         dto = es.get("enduranceScoreDTO") or {}
-        date_key = dto.get("calendarDate") or es.get("endDate") or es.get("startDate")
+        date_key = dto.get("calendarDate") or today_str
         if date_key:
             upsert_endurance_raw(db_path, date_key, es)
             map_endurance_into_uhm(db_path, es)
@@ -348,7 +353,7 @@ def cmd_garmin_training_metrics(args) -> int:
 
     # Fitness age
     try:
-        fa = client.get_fitnessage_data()
+        fa = client.get_fitnessage_data(today_str)
         # lastUpdated ISO date-time
         last_updated = fa.get("lastUpdated")
         date_key = last_updated.split("T", 1)[0] if isinstance(last_updated, str) else None
