@@ -2,152 +2,264 @@
 
 **语言：** [English](README.md) | 中文说明
 
-`clawhealth` 是一个面向 OpenClaw / Agent 的 **健康数据命令行工具箱**。
+`clawhealth` 是一个 **面向个人的健康数据命令行工具箱**。
 
-第一阶段聚焦 **Garmin Connect 个人账号**：
+它从 Garmin Connect 拉取你的睡眠、步数、心率、压力、HRV、训练准备度等信息，
+存到本地 SQLite，然后用一组小而清晰的命令帮你和 Agent 看懂每天的状态和趋势。
 
-- 通过 CLI 完成登录（用户名/密码/MFA）并持久化会话；
-- 从 Garmin 拉取睡眠、步数、静息心率等数据，写入本地 SQLite；
-- 提供适合人类和 Agent 使用的 CLI（JSON 输出），用于查看同步状态和日度摘要。
+可以把它当成：**“自己的运动 / 恢复日报引擎”**。
 
-不强制跑 REST API 服务，所有与 Agent 的集成都可以通过 CLI 完成。
-
----
-
-## 核心设计原则
-
-- **CLI-first**：所有关键操作（登录、同步、查询）都以命令行为主入口；
-- **本地优先**：数据落在本机 SQLite（例如 `/opt/clawhealth/data/health.db`），不会自动上传到第三方云端；
-- **易于 Agent 集成**：
-  - 命令支持 `--json` 输出，返回结构化的状态和数据；
-  - 错误使用稳定的 `error_code`（例如 `NEED_MFA`、`AUTH_CHALLENGE_REQUIRED`），而不是随意的错误文案；
-- **分层清晰**：clawhealth 只负责本地拉取 + SQLite + CLI，MCP/REST 如有需要可以在外层再包一层。
-
-更详细的技术规划见 [`PLAN_CN.md`](PLAN_CN.md)。
+> 当前状态：Garmin 第一阶段功能已实现并通过多轮物理测试
+> （登录 / 同步 / 状态 / HRV / 日摘要 + 趋势 / flags / 训练指标）。
 
 ---
 
-## Garmin 第一阶段（已实现）：CLI 形状概览
+## 它现在能做什么？
 
-### 1. 登录（含 MFA）
+针对一个 Garmin 账号，clawhealth 会：
+
+- 通过用户名/密码 + MFA 登录，并在本地保存可复用的会话；
+- 按天同步你的健康数据到本地 `health.db`；
+- 提供“今天/某天”的健康概要（文本 + JSON）；
+- 按最近 N 天计算趋势（平均睡眠、步数、HRV、压力等）；
+- 给出一些简单的健康 flags（比如睡眠偏低、HRV 偏低、步数偏少等）。
+
+它**不会**：
+
+- 把你的健康数据上传到任何地方；
+- 自己跑一个常驻的 HTTP 服务；
+- 取代 Garmin Connect 做所有细粒度分析。
+
+clawhealth 更像是“本地健康数据中枢”，上层可以是 OpenClaw Agent、命令行脚本，或者你自己的日报工作流。
+
+---
+
+## 快速上手
+
+### 1. 安装（开发模式）
 
 ```bash
-clawhealth garmin login \
-  --username YOUR_EMAIL \
-  --password-file /path/to/pass.txt \
-  --config-dir /opt/clawhealth/config \
-  [--mfa-code 123456] \
-  [--json]
+cd clawhealth
+python -m pip install -e .
 ```
 
-- 第一次调用：
-  - 使用 `python-garminconnect` + `garth` 尝试登录；
-  - 如果需要 MFA，则返回 `error_code=NEED_MFA` 而不是卡在交互输入上；
-- 第二次调用：
-  - 携带 `--mfa-code`，完成验证码验证；
-  - 登录成功后在 `config-dir` 下写入会话/Token 文件，后续 `sync` 不再需要验证码，直到 token 失效。
+安装完成后，会多出一个 `clawhealth` 命令。
 
-### 2. 同步数据到本地 SQLite（UHM）
+### 2. 配置 Garmin 账号
+
+在仓库根目录创建 `.env`（或直接设置环境变量）：
+
+```env
+CLAWHEALTH_GARMIN_USERNAME=you@example.com
+CLAWHEALTH_GARMIN_PASSWORD_FILE=/path/to/garmin.pass
+CLAWHEALTH_CONFIG_DIR=/opt/clawhealth/config
+CLAWHEALTH_DB=/opt/clawhealth/data/health.db
+```
+
+- `CLAWHEALTH_GARMIN_PASSWORD_FILE` 指向一个文件，第一行是你的 Garmin 密码。
+- CLI 会在需要时自动创建 `CLAWHEALTH_CONFIG_DIR` 和 `CLAWHEALTH_DB` 所在目录。
+
+### 3. 登录（含两步 MFA）
+
+```bash
+# 第一步：尝试登录，可能返回 NEED_MFA
+clawhealth garmin login --json
+
+# 第二步：看到 NEED_MFA 后，输入手机/Authenticator 上的验证码
+clawhealth garmin login --mfa-code 123456 --json
+```
+
+成功时会返回：
+
+```json
+{
+  "ok": true,
+  "auth_state": "AUTH_OK"
+}
+```
+
+会话 token 会写入 `CLAWHEALTH_CONFIG_DIR`，后续 sync/status 会自动复用，直到失效。
+
+### 4. 同步几天的数据
 
 ```bash
 clawhealth garmin sync \
   --since 2026-03-01 \
   --until 2026-03-03 \
-  --config-dir /opt/clawhealth/config \
-  --db /opt/clawhealth/data/health.db \
-  [--json]
+  --json
 ```
 
-- 从 `config-dir` 读取会话，如果会话失效返回 `AUTH_CHALLENGE_REQUIRED`；
-- 对每个日期拉取健康数据（睡眠/步数/RHR/体重等），映射到 UHM 日表 `uhm_daily`；
-- 在 `sync_runs` 表记录本次同步的时间范围、状态、错误信息等；
-- `--json` 模式下返回结构化的结果，方便 Agent 判断是否需要提示用户。
+它会：
 
-### 3. 查看同步状态与数据新鲜度
+- 对每一天调用 Garmin 接口拿日汇总数据；
+- 把原始 JSON 存到 `garmin_daily_raw`；
+- 把核心指标映射到 `uhm_daily`（一行一天）；
+- 在 `sync_runs` 记录这次同步的时间范围和状态。
+
+### 5. 查看同步状态
 
 ```bash
-clawhealth garmin status \
-  --db /opt/clawhealth/data/health.db \
-  [--json]
+clawhealth garmin status --json
 ```
 
-典型 JSON 输出：
+典型输出：
 
 ```json
 {
   "ok": true,
-  "last_success_at": "2026-03-02T20:15:00Z",
-  "data_freshness_hours": 5.3,
-  "covered_from": "2025-12-01",
-  "covered_to": "2026-03-02",
+  "covered_from": "2026-03-01",
+  "covered_to": "2026-03-03",
+  "last_success_at": "2026-03-03T20:15:00+00:00",
+  "data_freshness_hours": 0.3,
   "source_vendor": "garmin",
   "driver_version": "garminconnect_v1",
   "mapping_version": "uhm_v1"
 }
 ```
 
-Agent 可以用它判断：
+Agent 可以用它判断“数据是不是过期了”、“要不要提醒你再同步一次”。
 
-- 最近是否跑过同步；
-- 数据是否过期（例如超过 24 小时未更新）。
-
-### 4. 日度摘要（给人 / Agent 看）
+### 6. 看日度健康摘要
 
 ```bash
-clawhealth daily-summary \
-  --date 2026-03-02 \
-  --db /opt/clawhealth/data/health.db \
-  [--json]
+# 人类可读版本
+clawhealth daily-summary --date 2026-03-03
+
+# JSON 版本（给 Agent 用）
+clawhealth daily-summary --date 2026-03-03 --json
 ```
 
-输出示例（人类友好）：
+示例文本输出：
 
 ```text
-2026-03-02 健康概要（来源：Garmin，本地 uhm_v1）
+2026-03-03 健康概要（来源：Garmin，本地 uhm_v1）
 - 睡眠：6.5 小时
 - 静息心率：60 bpm
 - 步数：5030 步（约 4.2 km）
 - 总能量消耗：2482 kcal
-- 体重：--（暂无称重数据）
 - 压力：平均 47，峰值 97，VERY_STRESSFUL
 - 身体电量：起床 33 → 当前 5
 - HRV：昨夜平均 40 ms，状态：BALANCED
+- 训练准备度：评分 68，MODERATE
+- 体能年龄：当前 48.7 岁，生理 50 岁，可达 43 岁
 ```
 
-`--json` 模式下会返回结构化 JSON，包括 `sleep_total_min`、`rhr_bpm`、`steps`、`distance_m`、`calories_total`、`weight_kg`、`stress_*`、`body_battery_*`、`hrv_*` 等字段，便于 Agent 进行二次加工。
+JSON 版本（截断示例）：
+
+```json
+{
+  "ok": true,
+  "date": "2026-03-03",
+  "sleep_total_min": 391,
+  "rhr_bpm": 60,
+  "steps": 5030,
+  "distance_m": 4156.0,
+  "calories_total": 2482.0,
+  "stress_avg": 47,
+  "body_battery_start": 33,
+  "body_battery_end": 5,
+  "hrv_last_night_avg": 40,
+  "hrv_status": "BALANCED",
+  "training_readiness_score": 68,
+  "training_status_code": 5,
+  "endurance_overall_score": 3464,
+  "fitness_age": 48.69,
+  "fitness_age_chronological": 50.0,
+  "fitness_age_achievable": 43.4,
+  "mapping_version": "uhm_v1"
+}
+```
 
 ---
 
-## 安装与开发
+## 常用命令速查
 
-clawhealth 使用 `pyproject.toml` 管理包和 CLI 入口：
-
-- 包名：`clawhealth`；
-- CLI 入口：`clawhealth = "clawhealth.cli:main"`。
-
-开发模式安装：
+### Garmin 相关
 
 ```bash
-cd clawhealth
-python -m pip install -e .
+# 登录 + MFA
+clawhealth garmin login [--username ...] [--password-file ...] [--mfa-code ...] [--json]
 
-# 然后直接使用：
-clawhealth garmin login --help
-clawhealth garmin sync --help
-clawhealth daily-summary --help
+# 将 Garmin 日数据同步到本地 SQLite
+clawhealth garmin sync --since YYYY-MM-DD [--until YYYY-MM-DD] [--db ...] [--json]
+
+# 查看覆盖范围和数据新鲜度
+clawhealth garmin status [--db ...] [--json]
+
+# 导出某天 HRV 原始 JSON，并把 HRV 摘要写入 DB
+clawhealth garmin hrv-dump --date YYYY-MM-DD [--config-dir ...] [--out ...] [--json]
+
+# 最近 N 天趋势（均值）
+clawhealth garmin trend-summary [--days 7] [--db ...] [--json]
+
+# 最近 N 天 flags（睡眠低 / HRV 低 / 压力高 / 步数少）
+clawhealth garmin flags [--days 7] [--db ...] [--json]
+
+# 拉取“今天”的训练类指标（训练准备度/训练状态/耐力/体能年龄），写入 UHM
+clawhealth garmin training-metrics [--config-dir ...] [--db ...] [--json]
 ```
+
+### 日度摘要
+
+```bash
+# 今天（默认）
+clawhealth daily-summary [--db ...]
+
+# 指定日期
+clawhealth daily-summary --date YYYY-MM-DD [--db ...] [--json]
+```
+
+详细参数和选项见 [`CLI_HELP_SPEC.md`](CLI_HELP_SPEC.md)。
 
 ---
 
-## 后续规划（简要）
+## 配置要点
 
-- 完成 Garmin 第一阶段实现：
-  - login/sync/status/daily-summary；
-  - 健康 SQLite schema（`uhm_daily` + `sync_runs`）；
-  - 文档与 CLI 帮助对齐。
-- 按使用体验迭代 UHM 字段和 CLI：
-  - 增加活动级别查询（`export-series` / `activity-summary`）；
-  - 根据 Agent 的反馈优化 daily-summary 文案和 JSON 结构。
-- 是否需要 MCP / Web UI：
-  - 完全可以在 clawhealth 之外再包一层（例如 OpenClaw skills 或轻量 Flask 服务）；
-  - 不强制把这些组件塞进 clawhealth 本体。
+常用环境变量（可选，CLI 参数优先）：
+
+- `CLAWHEALTH_GARMIN_USERNAME` – Garmin 用户名/邮箱；
+- `CLAWHEALTH_GARMIN_PASSWORD_FILE` – 存放密码的文件路径（第一行是密码）；
+- `CLAWHEALTH_GARMIN_PASSWORD` – 明文密码（不推荐，除非你确定环境安全）；
+- `CLAWHEALTH_CONFIG_DIR` – 会话 token 与缓存目录（默认 `/opt/clawhealth/config`）；
+- `CLAWHEALTH_DB` – SQLite DB 路径（默认 `/opt/clawhealth/data/health.db`）。
+
+项目根目录下的 `.env` 会在启动时自动加载，使用 `setdefault` 语义：
+**环境变量优先于 `.env`**。
+
+---
+
+## 数据会落在哪里？
+
+默认会生成一个 SQLite 文件：`/opt/clawhealth/data/health.db`，包含主要几张表：
+
+- `uhm_daily` – 一行一天的标准化指标；
+- `garmin_daily_raw` – `get_stats_and_body` 的原始 JSON；
+- `garmin_hrv_raw` – HRV 原始数据；
+- `garmin_training_readiness_raw` / `garmin_training_status_raw` /
+  `garmin_endurance_raw` / `garmin_fitness_age_raw`；
+- `sync_runs` – 每次同步的执行记录。
+
+一般情况下你无需直接操作这些表：
+
+- 日常使用：`daily-summary` / `trend-summary` / `flags` 已经足够；
+- 需要更深入分析时，再用 sqlite3 / Python 自己去读 raw 表会更灵活。
+
+如果你只是试用，发现 schema 有调整，
+可以直接删掉旧的 `health.db`，重新跑 `sync` 让 clawhealth 重建。
+
+---
+
+## 想了解内部细节？
+
+- [`DESIGN.md`](DESIGN.md)：英文技术设计，描述了 SQLite schema、
+  映射函数和登录流程（garth + garminconnect）。
+- [`PLAN_CN.md`](PLAN_CN.md)：中文设计与规划文档，记录了整个项目的背景、取舍和后续思路。
+
+这些文档更偏工程视角，一般使用时可以不用看；
+只有在需要扩展字段或增加 provider 时再参考即可。
+
+---
+
+## 协议
+
+MIT © Ernest Yu
