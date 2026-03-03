@@ -421,6 +421,181 @@ def upsert_hrv_raw(db_path: Path, date_str: str, payload: Dict[str, Any]) -> Non
     _upsert_raw_generic(db_path, "garmin_hrv_raw", date_str, payload)
 
 
+def map_training_readiness_into_uhm(db_path: Path, payload: Dict[str, Any]) -> None:
+    """Map morning training readiness payload into uhm_daily.
+
+    Expects a single dict from get_morning_training_readiness().
+    """
+
+    date_str = payload.get("calendarDate")
+    if not date_str:
+        return
+
+    score = payload.get("score")
+    level = payload.get("level")
+    feedback_short = payload.get("feedbackShort")
+    recovery_time = payload.get("recoveryTime")  # minutes
+    acute_load = payload.get("acuteLoad")
+    hrv_factor = payload.get("hrvFactorPercent")
+    sleep_factor = payload.get("sleepHistoryFactorPercent") or payload.get("sleepScoreFactorPercent")
+    stress_factor = payload.get("stressHistoryFactorPercent")
+
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE uhm_daily
+               SET training_readiness_score = :score,
+                   training_readiness_level = :level,
+                   training_readiness_feedback = :feedback,
+                   training_readiness_recovery_min = :recovery_min,
+                   training_readiness_acute_load = :acute_load,
+                   training_readiness_hrv_factor = :hrv_factor,
+                   training_readiness_sleep_factor = :sleep_factor,
+                   training_readiness_stress_factor = :stress_factor
+             WHERE date_local = :date_local
+            """,
+            {
+                "date_local": date_str,
+                "score": score,
+                "level": level,
+                "feedback": feedback_short,
+                "recovery_min": int(recovery_time) if isinstance(recovery_time, (int, float)) else None,
+                "acute_load": float(acute_load) if isinstance(acute_load, (int, float)) else None,
+                "hrv_factor": float(hrv_factor) if isinstance(hrv_factor, (int, float)) else None,
+                "sleep_factor": float(sleep_factor) if isinstance(sleep_factor, (int, float)) else None,
+                "stress_factor": float(stress_factor) if isinstance(stress_factor, (int, float)) else None,
+            },
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def map_training_status_into_uhm(db_path: Path, payload: Dict[str, Any]) -> None:
+    """Map most recent training status into uhm_daily.
+
+    Uses latestTrainingStatusData for the primary device.
+    """
+
+    most = payload.get("mostRecentTrainingStatus") or {}
+    latest_map = most.get("latestTrainingStatusData") or {}
+    if not latest_map:
+        return
+    device_id, dto = next(iter(latest_map.items()))
+    date_str = dto.get("calendarDate")
+    if not date_str:
+        return
+
+    status_code = dto.get("trainingStatus")
+    feedback = dto.get("trainingStatusFeedbackPhrase")
+    acute = dto.get("acuteTrainingLoadDTO") or {}
+    acwr_percent = acute.get("acwrPercent")
+    acwr_status = acute.get("acwrStatus")
+    load_acute = acute.get("dailyTrainingLoadAcute")
+    load_chronic = acute.get("dailyTrainingLoadChronic")
+    load_ratio = acute.get("dailyAcuteChronicWorkloadRatio")
+
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE uhm_daily
+               SET training_status_code = :status_code,
+                   training_status_feedback = :feedback,
+                   training_acwr_percent = :acwr_percent,
+                   training_acwr_status = :acwr_status,
+                   training_load_acute = :load_acute,
+                   training_load_chronic = :load_chronic,
+                   training_load_acwr_ratio = :load_ratio
+             WHERE date_local = :date_local
+            """,
+            {
+                "date_local": date_str,
+                "status_code": status_code,
+                "feedback": feedback,
+                "acwr_percent": float(acwr_percent) if isinstance(acwr_percent, (int, float)) else None,
+                "acwr_status": acwr_status,
+                "load_acute": float(load_acute) if isinstance(load_acute, (int, float)) else None,
+                "load_chronic": float(load_chronic) if isinstance(load_chronic, (int, float)) else None,
+                "load_ratio": float(load_ratio) if isinstance(load_ratio, (int, float)) else None,
+            },
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def map_endurance_into_uhm(db_path: Path, payload: Dict[str, Any]) -> None:
+    dto = (payload.get("enduranceScoreDTO") or {}).copy()
+    date_str = dto.get("calendarDate") or payload.get("endDate") or payload.get("startDate")
+    if not date_str:
+        return
+
+    overall = dto.get("overallScore")
+    classification = dto.get("classification")
+    feedback = dto.get("feedbackPhrase")
+
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE uhm_daily
+               SET endurance_overall_score = :overall,
+                   endurance_classification = :classification,
+                   endurance_feedback = :feedback
+             WHERE date_local = :date_local
+            """,
+            {
+                "date_local": date_str,
+                "overall": float(overall) if isinstance(overall, (int, float)) else None,
+                "classification": classification,
+                "feedback": str(feedback) if feedback is not None else None,
+            },
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def map_fitness_age_into_uhm(db_path: Path, payload: Dict[str, Any]) -> None:
+    date_str = None
+    last_updated = payload.get("lastUpdated")
+    if isinstance(last_updated, str) and last_updated:
+        date_str = last_updated.split("T", 1)[0]
+    if not date_str:
+        return
+
+    chronological = payload.get("chronologicalAge")
+    fitness_age = payload.get("fitnessAge")
+    achievable = payload.get("achievableFitnessAge")
+
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE uhm_daily
+               SET fitness_age_chronological = :chronological,
+                   fitness_age = :fitness_age,
+                   fitness_age_achievable = :achievable
+             WHERE date_local = :date_local
+            """,
+            {
+                "date_local": date_str,
+                "chronological": float(chronological) if isinstance(chronological, (int, float)) else None,
+                "fitness_age": float(fitness_age) if isinstance(fitness_age, (int, float)) else None,
+                "achievable": float(achievable) if isinstance(achievable, (int, float)) else None,
+            },
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def map_hrv_into_uhm(db_path: Path, date_str: str) -> None:
     """Map HRV raw payload for date_str into uhm_daily HRV fields.
 
