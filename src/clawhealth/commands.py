@@ -24,25 +24,38 @@ def _print_json(obj: Any) -> int:
 
 
 def cmd_garmin_login(args) -> int:
-    username = args.username
-    password_file = args.password_file
+    import os
+
+    username = args.username or os.getenv("CLAWHEALTH_GARMIN_USERNAME")
+    password_file = args.password_file or os.getenv("CLAWHEALTH_GARMIN_PASSWORD_FILE")
     config_dir = Path(args.config_dir).expanduser().resolve()
 
-    if not username or not password_file:
-        msg = "username and --password-file are required"
+    if not username and not password_file:
+        msg = "username and --password-file (or CLAWHEALTH_GARMIN_*) are required"
         if args.json:
             return _print_json({"ok": False, "error_code": "MISSING_CREDENTIALS", "message": msg})
         print(f"ERROR: {msg}")
         return 2
 
-    try:
-        password = Path(password_file).read_text(encoding="utf-8").splitlines()[0]
-    except Exception as exc:  # noqa: BLE001
-        msg = f"Failed to read password file: {exc}"
-        if args.json:
-            return _print_json({"ok": False, "error_code": "PASSWORD_FILE_ERROR", "message": msg})
-        print(f"ERROR: {msg}")
-        return 2
+    if password_file:
+        try:
+            password = Path(password_file).read_text(encoding="utf-8").splitlines()[0]
+        except Exception as exc:  # noqa: BLE001
+            msg = f"Failed to read password file: {exc}"
+            if args.json:
+                return _print_json({"ok": False, "error_code": "PASSWORD_FILE_ERROR", "message": msg})
+            print(f"ERROR: {msg}")
+            return 2
+    else:
+        import os
+
+        password = os.getenv("CLAWHEALTH_GARMIN_PASSWORD") or ""
+        if not password:
+            msg = "No password source found (CLAWHEALTH_GARMIN_PASSWORD_FILE or CLAWHEALTH_GARMIN_PASSWORD)"
+            if args.json:
+                return _print_json({"ok": False, "error_code": "MISSING_PASSWORD", "message": msg})
+            print(f"ERROR: {msg}")
+            return 2
 
     result: LoginResult = garmin_login(username=username, password=password, config_dir=config_dir, mfa_code=args.mfa_code)
     if not result.ok:
@@ -60,10 +73,12 @@ def cmd_garmin_login(args) -> int:
 
 
 def cmd_garmin_sync(args) -> int:
+    import os
+
     since = args.since
     until = args.until or args.since
-    config_dir = Path(args.config_dir).expanduser().resolve()
-    db_path = Path(args.db).expanduser().resolve()
+    config_dir = Path(os.getenv("CLAWHEALTH_CONFIG_DIR", args.config_dir)).expanduser().resolve()
+    db_path = Path(os.getenv("CLAWHEALTH_DB", args.db)).expanduser().resolve()
 
     if not since:
         msg = "--since is required for sync"
@@ -132,7 +147,9 @@ def cmd_garmin_sync(args) -> int:
 
 
 def cmd_garmin_status(args) -> int:
-    db_path = Path(args.db).expanduser().resolve()
+    import os
+
+    db_path = Path(os.getenv("CLAWHEALTH_DB", args.db)).expanduser().resolve()
     if not db_path.exists():
         payload = {
             "ok": False,
@@ -190,9 +207,11 @@ def cmd_garmin_status(args) -> int:
 
 def cmd_daily_summary(args) -> int:
     from datetime import date
+    import os
 
     target_date = args.date or date.today().isoformat()
-    db_path = Path(getattr(args, "db", "/opt/clawhealth/data/health.db")).expanduser().resolve()
+    db_default = os.getenv("CLAWHEALTH_DB", "/opt/clawhealth/data/health.db")
+    db_path = Path(getattr(args, "db", db_default)).expanduser().resolve()
 
     if not db_path.exists():
         print(f"ERROR: SQLite DB not found at {db_path}")
