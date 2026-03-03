@@ -9,21 +9,25 @@ positional arguments:
   {garmin,daily-summary}
     garmin              Garmin-related commands
     daily-summary       Show a summarized view of health metrics for a given
-                        date (stub)
+                        date
 
 options:
   -h, --help            show this help message and exit
 
 
 ## clawhealth garmin --help
-usage: clawhealth garmin [-h] {login,sync,status,hrv-dump} ...
+usage: clawhealth garmin [-h] {login,sync,status,trend-summary,flags,training-metrics,hrv-dump} ...
 
 positional arguments:
-  {login,sync,status,hrv-dump}
+  {login,sync,status,trend-summary,flags,training-metrics,hrv-dump}
     login               Perform Garmin login (username/password/MFA) and
                         persist session
     sync                Sync Garmin data into a local SQLite UHM DB
     status              Show sync status and data freshness
+    trend-summary       Show recent trend summary over a sliding window of days
+    flags               Compute simple health flags over recent days
+    training-metrics    Fetch training readiness/status/endurance/fitness-age
+                        and map into UHM
     hrv-dump            Dump raw HRV JSON for a given date (and persist to DB)
 
 options:
@@ -50,7 +54,7 @@ options:
 
 
 ## clawhealth garmin sync --help
-usage: clawhealth garmin sync [-h] [--since SINCE] [--until UNTIL]
+usage: clawhealth garmin sync [-h] --since SINCE [--until UNTIL]
                               [--config-dir CONFIG_DIR] [--db DB] [--json]
 
 options:
@@ -90,6 +94,45 @@ options:
   --out OUT             Optional path to write raw HRV JSON (default: print to
                         stdout)
   --json                Output structured JSON status instead of raw payload
+
+
+## clawhealth garmin trend-summary --help
+usage: clawhealth garmin trend-summary [-h] [--days DAYS] [--db DB] [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --days DAYS           Window size in days (default: 7)
+  --db DB               Path to SQLite DB for UHM data (default:
+                        /opt/clawhealth/data/health.db)
+  --json                Output structured JSON instead of human-readable
+                        text
+
+
+## clawhealth garmin flags --help
+usage: clawhealth garmin flags [-h] [--days DAYS] [--db DB] [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --days DAYS           Window size in days (default: 7)
+  --db DB               Path to SQLite DB for UHM data (default:
+                        /opt/clawhealth/data/health.db)
+  --json                Output structured JSON instead of human-readable
+                        text
+
+
+## clawhealth garmin training-metrics --help
+usage: clawhealth garmin training-metrics [-h] [--config-dir CONFIG_DIR]
+                                          [--db DB] [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --config-dir CONFIG_DIR
+                        Directory with Garmin session/config (default:
+                        /opt/clawhealth/config)
+  --db DB               Path to SQLite DB for UHM data (default:
+                        /opt/clawhealth/data/health.db)
+  --json                Output structured JSON instead of human-readable
+                        text
 
 
 ## clawhealth daily-summary --help
