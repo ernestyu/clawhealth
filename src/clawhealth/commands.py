@@ -266,10 +266,18 @@ def cmd_daily_summary(args) -> int:
 
     target_date = args.date or date.today().isoformat()
     db_default = os.getenv("CLAWHEALTH_DB", "/opt/clawhealth/data/health.db")
-    db_path = Path(getattr(args, "db", db_default)).expanduser().resolve()
+    db_val = getattr(args, "db", None) or db_default
+    db_path = Path(db_val).expanduser().resolve()
 
     if not db_path.exists():
-        print(f"ERROR: SQLite DB not found at {db_path}")
+        payload = {
+            "ok": False,
+            "error_code": "DB_NOT_FOUND",
+            "message": f"SQLite DB not found at {db_path}",
+        }
+        if getattr(args, "json", False):
+            return _print_json(payload)
+        print(f"ERROR: {payload['message']}")
         return 1
 
     conn = sqlite3.connect(db_path)
@@ -282,6 +290,10 @@ def cmd_daily_summary(args) -> int:
         )
         row = cur.fetchone()
         if not row:
+            if getattr(args, "json", False):
+                return _print_json(
+                    {"ok": True, "date": target_date, "message": "No UHM daily data", "data": None}
+                )
             print(f"No UHM daily data for {target_date} in {db_path}")
             return 0
         (
@@ -295,6 +307,20 @@ def cmd_daily_summary(args) -> int:
         ) = row
     finally:
         conn.close()
+
+    if getattr(args, "json", False):
+        payload = {
+            "ok": True,
+            "date": target_date,
+            "sleep_total_min": sleep_total_min,
+            "rhr_bpm": rhr_bpm,
+            "steps": steps,
+            "distance_m": distance_m,
+            "calories_total": calories_total,
+            "weight_kg": weight_kg,
+            "mapping_version": UHM_MAPPING_VERSION,
+        }
+        return _print_json(payload)
 
     print(f"{target_date} 健康概要（来源：Garmin，本地 {UHM_MAPPING_VERSION}）")
     if sleep_total_min is not None:
