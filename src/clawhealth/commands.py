@@ -18,6 +18,7 @@ from .driver_garmin import LoginResult, fetch_daily_summary, login as garmin_log
 from .uhm import (
     DRIVER_VERSION as UHM_DRIVER_VERSION,
     UHM_MAPPING_VERSION,
+    _now_iso,
     ensure_schema,
     log_sync_run,
     map_garmin_daily,
