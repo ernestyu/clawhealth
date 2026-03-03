@@ -361,6 +361,7 @@ def _load_window_rows(db_path: Path, days: int) -> list[dict[str, Any]]:
         cur.execute(
             "SELECT date_local, sleep_total_min, rhr_bpm, steps, distance_m, calories_total, weight_kg, "
             "stress_avg, stress_max, stress_qualifier, body_battery_start, body_battery_end, "
+            "spo2_avg, spo2_lowest, respiration_avg, respiration_lowest, respiration_highest, "
             "hrv_last_night_avg, hrv_weekly_avg, hrv_status, hrv_feedback "
             "FROM uhm_daily ORDER BY date_local DESC LIMIT ?",
             (days,),
@@ -404,6 +405,11 @@ def _load_window_rows(db_path: Path, days: int) -> list[dict[str, Any]]:
                 "stress_qualifier": stress_qualifier,
                 "body_battery_start": body_battery_start,
                 "body_battery_end": body_battery_end,
+                "spo2_avg": spo2_avg,
+                "spo2_lowest": spo2_lowest,
+                "respiration_avg": respiration_avg,
+                "respiration_lowest": respiration_lowest,
+                "respiration_highest": respiration_highest,
                 "hrv_last_night_avg": hrv_last_night_avg,
                 "hrv_weekly_avg": hrv_weekly_avg,
                 "hrv_status": hrv_status,
@@ -603,6 +609,7 @@ def cmd_daily_summary(args) -> int:
         cur.execute(
             "SELECT sleep_total_min, rhr_bpm, steps, distance_m, calories_total, weight_kg, "
             "stress_avg, stress_max, stress_qualifier, body_battery_start, body_battery_end, "
+            "spo2_avg, spo2_lowest, respiration_avg, respiration_lowest, respiration_highest, "
             "hrv_last_night_avg, hrv_weekly_avg, hrv_status, hrv_feedback, extra_metrics "
             "FROM uhm_daily WHERE date_local = ?",
             (target_date,),
@@ -651,6 +658,11 @@ def cmd_daily_summary(args) -> int:
             "stress_qualifier": stress_qualifier,
             "body_battery_start": body_battery_start,
             "body_battery_end": body_battery_end,
+            "spo2_avg": spo2_avg,
+            "spo2_lowest": spo2_lowest,
+            "respiration_avg": respiration_avg,
+            "respiration_lowest": respiration_lowest,
+            "respiration_highest": respiration_highest,
             "hrv_last_night_avg": hrv_last_night_avg,
             "hrv_weekly_avg": hrv_weekly_avg,
             "hrv_status": hrv_status,
@@ -683,6 +695,15 @@ def cmd_daily_summary(args) -> int:
         print("- 压力：" + "，".join(parts))
     if body_battery_start is not None or body_battery_end is not None:
         print(f"- 身体电量：起床 {body_battery_start or '?'} → 当前 {body_battery_end or '?'}")
+    if spo2_avg is not None or spo2_lowest is not None:
+        parts = []
+        if spo2_avg is not None:
+            parts.append(f"平均 {spo2_avg:.0f}%")
+        if spo2_lowest is not None:
+            parts.append(f"最低 {spo2_lowest:.0f}%")
+        print("- 血氧：" + "，".join(parts))
+    if respiration_avg is not None:
+        print(f"- 呼吸频率（清醒）：{respiration_avg:.0f} 次/分钟")
     if hrv_last_night_avg is not None or hrv_status is not None:
         # HRV 以“昨夜平均 + 状态”形式展示
         parts = []

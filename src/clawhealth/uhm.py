@@ -44,9 +44,20 @@ def ensure_schema(db_path: Path) -> None:
                 stress_avg INTEGER,
                 stress_max INTEGER,
                 stress_qualifier TEXT,
+                stress_total_min INTEGER,
+                stress_low_min INTEGER,
+                stress_medium_min INTEGER,
+                stress_high_min INTEGER,
                 -- Body Battery (estimated start/end of day)
                 body_battery_start REAL,
                 body_battery_end REAL,
+                -- SpO2 summary
+                spo2_avg REAL,
+                spo2_lowest REAL,
+                -- Respiration summary
+                respiration_avg REAL,
+                respiration_lowest REAL,
+                respiration_highest REAL,
                 -- HRV metrics (ms) and status
                 hrv_last_night_avg REAL,
                 hrv_weekly_avg REAL,
@@ -143,6 +154,33 @@ def map_garmin_daily(date_str: str, stats: Dict[str, Any]) -> Dict[str, Any]:
     body_battery_start = stats.get("bodyBatteryAtWakeTime")
     body_battery_end = stats.get("bodyBatteryMostRecentValue")
 
+    # Stress durations (seconds → minutes)
+    stress_total_min = None
+    stress_low_min = None
+    stress_medium_min = None
+    stress_high_min = None
+    total_stress = stats.get("totalStressDuration")
+    low_stress = stats.get("lowStressDuration")
+    med_stress = stats.get("mediumStressDuration")
+    high_stress = stats.get("highStressDuration")
+    if isinstance(total_stress, (int, float)):
+        stress_total_min = int(total_stress // 60)
+    if isinstance(low_stress, (int, float)):
+        stress_low_min = int(low_stress // 60)
+    if isinstance(med_stress, (int, float)):
+        stress_medium_min = int(med_stress // 60)
+    if isinstance(high_stress, (int, float)):
+        stress_high_min = int(high_stress // 60)
+
+    # SpO2 summary
+    spo2_avg = stats.get("averageSpo2")
+    spo2_lowest = stats.get("lowestSpo2")
+
+    # Respiration summary
+    respiration_avg = stats.get("avgWakingRespirationValue")
+    respiration_lowest = stats.get("lowestRespirationValue")
+    respiration_highest = stats.get("highestRespirationValue")
+
     extra_metrics = {
         k: v
         for k, v in stats.items()
@@ -169,6 +207,15 @@ def map_garmin_daily(date_str: str, stats: Dict[str, Any]) -> Dict[str, Any]:
             "stressQualifier",
             "bodyBatteryAtWakeTime",
             "bodyBatteryMostRecentValue",
+            "totalStressDuration",
+            "lowStressDuration",
+            "mediumStressDuration",
+            "highStressDuration",
+            "averageSpo2",
+            "lowestSpo2",
+            "avgWakingRespirationValue",
+            "highestRespirationValue",
+            "lowestRespirationValue",
         }
     }
 
@@ -188,11 +235,26 @@ def map_garmin_daily(date_str: str, stats: Dict[str, Any]) -> Dict[str, Any]:
         "stress_avg": int(stress_avg) if isinstance(stress_avg, (int, float)) else None,
         "stress_max": int(stress_max) if isinstance(stress_max, (int, float)) else None,
         "stress_qualifier": str(stress_qualifier) if stress_qualifier is not None else None,
+        "stress_total_min": stress_total_min,
+        "stress_low_min": stress_low_min,
+        "stress_medium_min": stress_medium_min,
+        "stress_high_min": stress_high_min,
         "body_battery_start": float(body_battery_start)
         if isinstance(body_battery_start, (int, float))
         else None,
         "body_battery_end": float(body_battery_end)
         if isinstance(body_battery_end, (int, float))
+        else None,
+        "spo2_avg": float(spo2_avg) if isinstance(spo2_avg, (int, float)) else None,
+        "spo2_lowest": float(spo2_lowest) if isinstance(spo2_lowest, (int, float)) else None,
+        "respiration_avg": float(respiration_avg)
+        if isinstance(respiration_avg, (int, float))
+        else None,
+        "respiration_lowest": float(respiration_lowest)
+        if isinstance(respiration_lowest, (int, float))
+        else None,
+        "respiration_highest": float(respiration_highest)
+        if isinstance(respiration_highest, (int, float))
         else None,
         # HRV fields are populated separately from garmin_hrv_raw
         "hrv_last_night_avg": None,
