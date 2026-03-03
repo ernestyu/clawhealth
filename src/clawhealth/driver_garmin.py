@@ -21,6 +21,7 @@ from typing import Any, Dict, Optional
 
 import garth
 from garth.exc import GarthException
+from garth import sso
 from garminconnect import Garmin
 
 
@@ -73,22 +74,36 @@ def login(
 
     try:
         if mfa_code:
-            # Second step: complete login with a known MFA code.
-            garth.login(username, password, mfa_code=mfa_code)
+            # Second step: complete login with a known MFA code using
+            # the stored client_state from the previous NEED_MFA step.
+            state_path = config_dir / "garth_mfa_state.json"
+            if not state_path.exists():
+                return LoginResult(
+                    ok=False,
+                    error_code="MFA_STATE_MISSING",
+                    message="MFA state missing; run login without --mfa-code first",
+                )
+            import json
+
+            client_state = json.loads(state_path.read_text(encoding="utf-8"))
+            # Recreate a client from stored state: for simplicity we use
+            # sso.resume_login directly.
+            oauth1, oauth2 = sso.resume_login(client_state, mfa_code)
+            garth.client.configure(oauth1_token=oauth1, oauth2_token=oauth2, domain=oauth1.domain)
+            state_path.unlink(missing_ok=True)
         else:
             # First step: detect whether MFA is required without blocking
             # on user input.
-            try:
-                result = garth.login(username, password, return_on_mfa=True)
-            except TypeError:
-                # Older/newer garth without return_on_mfa support: fall
-                # back to a plain login which may prompt; surface as a
-                # generic failure in non-interactive contexts.
-                raise NeedMfaChallenge("MFA handling not supported via return_on_mfa")
-
+            result = sso.login(username, password, client=garth.client, return_on_mfa=True)
             if isinstance(result, tuple) and len(result) >= 1 and result[0] == "needs_mfa":
+                # Persist MFA client_state for the second step.
+                _, client_state = result
+                import json
+
+                state_path = config_dir / "garth_mfa_state.json"
+                state_path.write_text(json.dumps(client_state), encoding="utf-8")
                 raise NeedMfaChallenge("MFA required")
-            # Otherwise, login succeeded without MFA.
+            # Otherwise, login succeeded without MFA (tokens already on client).
 
         garth.save(str(token_path))
     except NeedMfaChallenge:
