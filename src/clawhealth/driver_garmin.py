@@ -70,17 +70,16 @@ def login(
 
     try:
         if mfa_code:
-            # Handler that simply returns the provided MFA code.
-            def handler() -> str:  # type: ignore[override]
-                return mfa_code
-
-            garth.login(username, password, mfa_handler=handler)
+            # Advanced MFA flow: resume_login with a provided code.
+            result1, result2 = garth.login(username, password, return_on_mfa=True)
+            if result1 == "needs_mfa":
+                garth.resume_login(result2, mfa_code)
+            # If no MFA was required, result1/result2 are already the tokens.
         else:
-            # Handler that signals the need for MFA without blocking on input.
-            def handler() -> str:  # type: ignore[override]
+            # Ask garth to return early when MFA is required.
+            result1, _ = garth.login(username, password, return_on_mfa=True)
+            if result1 == "needs_mfa":
                 raise NeedMfaChallenge("MFA required")
-
-            garth.login(username, password, mfa_handler=handler)
 
         garth.save(str(token_path))
     except NeedMfaChallenge:
