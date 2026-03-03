@@ -114,11 +114,20 @@ def main(argv: list[str] | None = None) -> int:
     # Aggregated summaries for agents/humans
     sp_summary = sub.add_parser(
         "daily-summary",
-        help="Show a summarized view of health metrics for a given date (stub)",
+        help="Show a summarized view of health metrics for a given date",
     )
     sp_summary.add_argument(
         "--date",
         help="Target date (YYYY-MM-DD). If omitted, implementation will choose a default",
+    )
+    sp_summary.add_argument(
+        "--db",
+        help="Path to SQLite DB for UHM data (default: CLAWHEALTH_DB or /opt/clawhealth/data/health.db)",
+    )
+    sp_summary.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured JSON instead of human-readable text",
     )
 
     args = parser.parse_args(argv)

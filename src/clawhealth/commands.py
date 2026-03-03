@@ -15,7 +15,15 @@ from pathlib import Path
 from typing import Any
 
 from .driver_garmin import LoginResult, fetch_daily_summary, login as garmin_login, make_client, resume_session
-from .uhm import DRIVER_VERSION as UHM_DRIVER_VERSION, UHM_MAPPING_VERSION, map_garmin_daily, upsert_uhm_daily
+from .uhm import (
+    DRIVER_VERSION as UHM_DRIVER_VERSION,
+    UHM_MAPPING_VERSION,
+    ensure_schema,
+    log_sync_run,
+    map_garmin_daily,
+    upsert_uhm_daily,
+    upsert_daily_raw,
+)
 
 
 def _print_json(obj: Any) -> int:
@@ -81,6 +89,8 @@ def cmd_garmin_sync(args) -> int:
     config_dir = Path(os.getenv("CLAWHEALTH_CONFIG_DIR", args.config_dir)).expanduser().resolve()
     db_path = Path(os.getenv("CLAWHEALTH_DB", args.db)).expanduser().resolve()
 
+    ensure_schema(db_path)
+
     if not since:
         msg = "--since is required for sync"
         if args.json:
@@ -112,10 +122,20 @@ def cmd_garmin_sync(args) -> int:
     days_synced = []
     errors: list[dict[str, Any]] = []
 
+    # Record sync run start
+    run_id = log_sync_run(
+        db_path,
+        status="running",
+        range_start=d_start.isoformat(),
+        range_end=d_end.isoformat(),
+    )
+
     while current <= d_end:
         d_str = current.isoformat()
         try:
             stats = fetch_daily_summary(client, d_str)
+            # Store raw payload for full-fidelity access.
+            upsert_daily_raw(db_path, d_str, stats)
             row = map_garmin_daily(d_str, stats)
             upsert_uhm_daily(db_path, row)
             days_synced.append(d_str)
@@ -123,6 +143,18 @@ def cmd_garmin_sync(args) -> int:
             ok = False
             errors.append({"date": d_str, "message": str(exc)})
         current += timedelta(days=1)
+
+    # Finish sync run
+    log_sync_run(
+        db_path,
+        run_id=run_id,
+        ended_at=_now_iso(),
+        status="success" if ok else "error",
+        range_start=d_start.isoformat(),
+        range_end=d_end.isoformat(),
+        error_code=None if ok else "SYNC_PARTIAL_ERROR",
+        error_message=None if ok else json.dumps(errors, ensure_ascii=False)[:2000],
+    )
 
     payload: dict[str, Any] = {
         "ok": ok,
@@ -165,9 +197,28 @@ def cmd_garmin_status(args) -> int:
     conn = sqlite3.connect(db_path)
     try:
         cur = conn.cursor()
+        # 覆盖范围来自 uhm_daily
         cur.execute("SELECT MIN(date_local), MAX(date_local) FROM uhm_daily")
         row = cur.fetchone()
         covered_from, covered_to = row if row else (None, None)
+        # 最近一次成功 sync_run
+        cur.execute(
+            "SELECT ended_at FROM sync_runs WHERE status = 'success' ORDER BY ended_at DESC LIMIT 1"
+        )
+        row2 = cur.fetchone()
+        last_success_at = row2[0] if row2 else None
+        # 最近一次错误
+        cur.execute(
+            "SELECT ended_at, error_code, error_message FROM sync_runs WHERE status = 'error' ORDER BY ended_at DESC LIMIT 1"
+        )
+        row3 = cur.fetchone()
+        last_error = None
+        if row3:
+            last_error = {
+                "ended_at": row3[0],
+                "error_code": row3[1],
+                "error_message": row3[2],
+            }
     except Exception as exc:  # noqa: BLE001
         payload = {"ok": False, "error_code": "DB_QUERY_ERROR", "message": str(exc)}
         if args.json:
@@ -178,9 +229,9 @@ def cmd_garmin_status(args) -> int:
         conn.close()
 
     data_freshness_hours = None
-    if covered_to:
+    if last_success_at:
         try:
-            dt = datetime.fromisoformat(covered_to + "T00:00:00+00:00")
+            dt = datetime.fromisoformat(last_success_at.replace("Z", "+00:00"))
             data_freshness_hours = round((datetime.now(timezone.utc) - dt).total_seconds() / 3600.0, 3)
         except Exception:
             data_freshness_hours = None
@@ -189,7 +240,9 @@ def cmd_garmin_status(args) -> int:
         "ok": True,
         "covered_from": covered_from,
         "covered_to": covered_to,
+        "last_success_at": last_success_at,
         "data_freshness_hours": data_freshness_hours,
+        "last_error": last_error,
         "source_vendor": "garmin",
         "driver_version": UHM_DRIVER_VERSION,
         "mapping_version": UHM_MAPPING_VERSION,

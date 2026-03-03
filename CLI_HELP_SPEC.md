@@ -77,9 +77,13 @@ options:
 
 
 ## clawhealth daily-summary --help
-usage: clawhealth daily-summary [-h] [--date DATE]
+usage: clawhealth daily-summary [-h] [--date DATE] [--db DB] [--json]
 
 options:
   -h, --help            show this help message and exit
   --date DATE           Target date (YYYY-MM-DD). If omitted, implementation
                         will choose a default
+  --db DB               Path to SQLite DB for UHM data (default:
+                        CLAWHEALTH_DB or /opt/clawhealth/data/health.db)
+  --json                Output structured JSON instead of human-readable
+                        text
