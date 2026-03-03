@@ -715,6 +715,8 @@ def cmd_daily_summary(args) -> int:
 
     conn = sqlite3.connect(db_path)
     try:
+        # Row factory for name-based access; avoids unpacking issues as schema evolves
+        conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute(
             "SELECT sleep_total_min, rhr_bpm, steps, distance_m, calories_total, weight_kg, "
@@ -739,24 +741,50 @@ def cmd_daily_summary(args) -> int:
                 )
             print(f"No UHM daily data for {target_date} in {db_path}")
             return 0
-        (
-            sleep_total_min,
-            rhr_bpm,
-            steps,
-            distance_m,
-            calories_total,
-            weight_kg,
-            stress_avg,
-            stress_max,
-            stress_qualifier,
-            body_battery_start,
-            body_battery_end,
-            hrv_last_night_avg,
-            hrv_weekly_avg,
-            hrv_status,
-            hrv_feedback,
-            extra_metrics_json,
-        ) = row
+        r = {k: row[k] for k in row.keys()}
+
+        sleep_total_min = r.get("sleep_total_min")
+        rhr_bpm = r.get("rhr_bpm")
+        steps = r.get("steps")
+        distance_m = r.get("distance_m")
+        calories_total = r.get("calories_total")
+        weight_kg = r.get("weight_kg")
+        stress_avg = r.get("stress_avg")
+        stress_max = r.get("stress_max")
+        stress_qualifier = r.get("stress_qualifier")
+        body_battery_start = r.get("body_battery_start")
+        body_battery_end = r.get("body_battery_end")
+        spo2_avg = r.get("spo2_avg")
+        spo2_lowest = r.get("spo2_lowest")
+        respiration_avg = r.get("respiration_avg")
+        respiration_lowest = r.get("respiration_lowest")
+        respiration_highest = r.get("respiration_highest")
+        hrv_last_night_avg = r.get("hrv_last_night_avg")
+        hrv_weekly_avg = r.get("hrv_weekly_avg")
+        hrv_status = r.get("hrv_status")
+        hrv_feedback = r.get("hrv_feedback")
+        training_readiness_score = r.get("training_readiness_score")
+        training_readiness_level = r.get("training_readiness_level")
+        training_readiness_feedback = r.get("training_readiness_feedback")
+        training_readiness_recovery_min = r.get("training_readiness_recovery_min")
+        training_readiness_acute_load = r.get("training_readiness_acute_load")
+        training_readiness_hrv_factor = r.get("training_readiness_hrv_factor")
+        training_readiness_sleep_factor = r.get("training_readiness_sleep_factor")
+        training_readiness_stress_factor = r.get("training_readiness_stress_factor")
+        training_status_code = r.get("training_status_code")
+        training_status_feedback = r.get("training_status_feedback")
+        training_acwr_percent = r.get("training_acwr_percent")
+        training_acwr_status = r.get("training_acwr_status")
+        training_load_acute = r.get("training_load_acute")
+        training_load_chronic = r.get("training_load_chronic")
+        training_load_acwr_ratio = r.get("training_load_acwr_ratio")
+        endurance_overall_score = r.get("endurance_overall_score")
+        endurance_classification = r.get("endurance_classification")
+        endurance_feedback = r.get("endurance_feedback")
+        fitness_age = r.get("fitness_age")
+        fitness_age_chronological = r.get("fitness_age_chronological")
+        fitness_age_achievable = r.get("fitness_age_achievable")
+        extra_metrics_json = r.get("extra_metrics")
     finally:
         conn.close()
 
