@@ -53,14 +53,17 @@ def login(
 ) -> LoginResult:
     """Perform login using garth + python-garminconnect.
 
-    Two-step MFA-aware flow:
+    Two-step MFA-aware flow compatible with garth 0.5.x:
+
     - First call without mfa_code:
-      * If login succeeds without challenge, token is saved and we
-        return ok=True.
-      * If Garmin requires MFA, we raise NeedMfaChallenge and map it to
-        error_code="NEED_MFA" so the caller can ask the user for a code.
+      * Use garth.login(..., return_on_mfa=True).
+      * If it returns ("needs_mfa", state), we surface NEED_MFA so the
+        caller can ask the user for a code.
+      * If it returns tokens directly, login succeeded without MFA.
+
     - Second call with mfa_code:
-      * We pass a handler that returns the provided code.
+      * Call garth.login(username, password, mfa_code=mfa_code) to
+        complete the challenge in one step.
 
     Any other failure is surfaced as LOGIN_FAILED.
     """
@@ -70,16 +73,22 @@ def login(
 
     try:
         if mfa_code:
-            # Advanced MFA flow: resume_login with a provided code.
-            result1, result2 = garth.login(username, password, return_on_mfa=True)
-            if result1 == "needs_mfa":
-                garth.resume_login(result2, mfa_code)
-            # If no MFA was required, result1/result2 are already the tokens.
+            # Second step: complete login with a known MFA code.
+            garth.login(username, password, mfa_code=mfa_code)
         else:
-            # Ask garth to return early when MFA is required.
-            result1, _ = garth.login(username, password, return_on_mfa=True)
-            if result1 == "needs_mfa":
+            # First step: detect whether MFA is required without blocking
+            # on user input.
+            try:
+                result = garth.login(username, password, return_on_mfa=True)
+            except TypeError:
+                # Older/newer garth without return_on_mfa support: fall
+                # back to a plain login which may prompt; surface as a
+                # generic failure in non-interactive contexts.
+                raise NeedMfaChallenge("MFA handling not supported via return_on_mfa")
+
+            if isinstance(result, tuple) and len(result) >= 1 and result[0] == "needs_mfa":
                 raise NeedMfaChallenge("MFA required")
+            # Otherwise, login succeeded without MFA.
 
         garth.save(str(token_path))
     except NeedMfaChallenge:
