@@ -40,11 +40,13 @@ class LoginResult:
 def _config_token_path(config_dir: Path) -> Path:
     """Return the path where we store the garth token.
 
-    We reuse garth's token format but keep it under clawhealth's
-    config_dir, e.g. /opt/clawhealth/config/garth_token.
+    For compatibility with python-garminconnect/garth, we let garth
+    manage its own token filenames (oauth1_token.json, oauth2_token.json)
+    under the given directory. This helper is kept for backwards
+    compatibility but currently unused.
     """
 
-    return config_dir / "garth_token.json"
+    return config_dir
 
 
 def login(
@@ -71,7 +73,7 @@ def login(
     """
 
     config_dir.mkdir(parents=True, exist_ok=True)
-    token_path = _config_token_path(config_dir)
+    token_dir = _config_token_path(config_dir)
 
     try:
         if mfa_code:
@@ -102,7 +104,9 @@ def login(
                 raise NeedMfaChallenge("MFA required")
             # Otherwise, login succeeded without MFA (tokens already on client).
 
-        garth.save(str(token_path))
+        # Save tokens into the directory so python-garminconnect can
+        # reuse them via its tokenstore mechanism.
+        garth.save(str(token_dir))
     except NeedMfaChallenge:
         return LoginResult(ok=False, error_code="NEED_MFA", message="MFA required; rerun with --mfa-code")
     except Exception as exc:  # noqa: BLE001
@@ -117,12 +121,12 @@ def resume_session(config_dir: Path) -> bool:
     Returns True on success, False if no valid session is available.
     """
 
-    token_path = _config_token_path(config_dir)
-    if not token_path.exists():
+    token_dir = _config_token_path(config_dir)
+    if not token_dir.exists():
         return False
 
     try:
-        garth.resume(str(token_path))
+        garth.resume(str(token_dir))
         # Touch a simple call to confirm the session is valid.
         _ = garth.client.username  # type: ignore[attr-defined]
         return True
