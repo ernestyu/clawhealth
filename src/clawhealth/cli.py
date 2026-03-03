@@ -98,7 +98,32 @@ def main(argv: list[str] | None = None) -> int:
     # garmin status
     sp_garmin_status = sp_garmin_sub.add_parser(
         "status",
-        help="Show sync status and data freshness (stub)",
+        help="Show sync status and data freshness",
+    )
+
+    # garmin hrv-dump (internal / debugging endpoint for HRV mapping)
+    sp_garmin_hrv = sp_garmin_sub.add_parser(
+        "hrv-dump",
+        help="Dump raw HRV JSON for a given date (for debugging/mapping)",
+    )
+    sp_garmin_hrv.add_argument(
+        "--date",
+        required=True,
+        help="Target date (YYYY-MM-DD) for HRV data",
+    )
+    sp_garmin_hrv.add_argument(
+        "--config-dir",
+        default="/opt/clawhealth/config",
+        help="Directory with Garmin session/config (default: /opt/clawhealth/config)",
+    )
+    sp_garmin_hrv.add_argument(
+        "--out",
+        help="Optional path to write raw HRV JSON (default: print to stdout)",
+    )
+    sp_garmin_hrv.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured JSON status instead of raw payload",
     )
     sp_garmin_status.add_argument(
         "--db",
@@ -139,6 +164,10 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_garmin_sync(args)
         if args.garmin_cmd == "status":
             return _cmd_garmin_status(args)
+        if args.garmin_cmd == "hrv-dump":
+            from .commands import cmd_garmin_hrv_dump as _cmd_garmin_hrv_dump
+
+            return _cmd_garmin_hrv_dump(args)
 
     if args.command == "daily-summary":
         return _cmd_daily_summary(args)

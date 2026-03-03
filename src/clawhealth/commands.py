@@ -14,7 +14,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .driver_garmin import LoginResult, fetch_daily_summary, login as garmin_login, make_client, resume_session
+from .driver_garmin import (
+    LoginResult,
+    fetch_daily_summary,
+    login as garmin_login,
+    make_client,
+    resume_session,
+)
 from .uhm import (
     DRIVER_VERSION as UHM_DRIVER_VERSION,
     UHM_MAPPING_VERSION,
@@ -257,6 +263,75 @@ def cmd_garmin_status(args) -> int:
     print("  Covered from:", covered_from)
     print("  Covered to  :", covered_to)
     print("  Freshness   :", f"{data_freshness_hours} h" if data_freshness_hours is not None else "unknown")
+    return 0
+
+
+def cmd_garmin_hrv_dump(args) -> int:
+    """Dump raw HRV JSON for a given date.
+
+    This is intended for testers/auditors to capture real HRV payloads so
+    that UHM mapping can be designed against actual data instead of guesses.
+    """
+
+    from datetime import date as _date
+    import os
+    from garminconnect import Garmin
+
+    # Validate date format early
+    target_date = args.date
+    try:
+        _date.fromisoformat(target_date)
+    except Exception:  # noqa: BLE001
+        payload = {"ok": False, "error_code": "INVALID_DATE", "message": f"Invalid date: {target_date}"}
+        if getattr(args, "json", False):
+            return _print_json(payload)
+        print(f"ERROR: {payload['message']}")
+        return 1
+
+    config_dir = Path(os.getenv("CLAWHEALTH_CONFIG_DIR", args.config_dir)).expanduser().resolve()
+
+    if not resume_session(config_dir):
+        payload = {
+            "ok": False,
+            "error_code": "AUTH_CHALLENGE_REQUIRED",
+            "message": "Session missing or expired; please run 'clawhealth garmin login' first.",
+        }
+        if getattr(args, "json", False):
+            return _print_json(payload)
+        print("ERROR:", payload["message"])
+        return 1
+
+    # Use the same tokenstore-based login as sync
+    os.environ.setdefault("GARMINTOKENS", str(config_dir))
+    client = Garmin()
+    client.login(tokenstore=str(config_dir))
+
+    try:
+        raw = client.get_hrv_data(target_date)
+    except Exception as exc:  # noqa: BLE001
+        payload = {"ok": False, "error_code": "HRV_FETCH_ERROR", "message": str(exc)}
+        if getattr(args, "json", False):
+            return _print_json(payload)
+        print("ERROR:", payload["message"])
+        return 1
+
+    out_path = getattr(args, "out", None)
+    if out_path:
+        out = Path(out_path).expanduser().resolve()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = {"ok": True, "date": target_date, "written": str(out)}
+        if getattr(args, "json", False):
+            return _print_json(payload)
+        print(f"HRV JSON for {target_date} written to {out}")
+        return 0
+
+    # No --out: either dump raw payload or status JSON
+    if getattr(args, "json", False):
+        payload = {"ok": True, "date": target_date, "payload": raw}
+        return _print_json(payload)
+
+    print(json.dumps(raw, ensure_ascii=False, indent=2))
     return 0
 
 
