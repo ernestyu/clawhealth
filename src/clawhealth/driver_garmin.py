@@ -24,6 +24,10 @@ from garth.exc import GarthException
 from garminconnect import Garmin
 
 
+class NeedMfaChallenge(Exception):
+    """Raised when Garmin requires an MFA challenge during login."""
+
+
 @dataclass
 class LoginResult:
     ok: bool
@@ -49,22 +53,38 @@ def login(
 ) -> LoginResult:
     """Perform login using garth + python-garminconnect.
 
-    Phase 1 keeps this simple:
-    - We call garth.login() which handles MFA internally (prompting via
-      a handler).
-    - For CLI/agent use we do not yet implement a custom MFA handler,
-      but we expose a hook via mfa_code for future refinement.
+    Two-step MFA-aware flow:
+    - First call without mfa_code:
+      * If login succeeds without challenge, token is saved and we
+        return ok=True.
+      * If Garmin requires MFA, we raise NeedMfaChallenge and map it to
+        error_code="NEED_MFA" so the caller can ask the user for a code.
+    - Second call with mfa_code:
+      * We pass a handler that returns the provided code.
 
-    For now, any failure is surfaced as a generic error_code.
+    Any other failure is surfaced as LOGIN_FAILED.
     """
 
     config_dir.mkdir(parents=True, exist_ok=True)
     token_path = _config_token_path(config_dir)
 
     try:
-        # Use garth to perform login and persist session.
-        garth.login(username, password)
+        if mfa_code:
+            # Handler that simply returns the provided MFA code.
+            def handler() -> str:  # type: ignore[override]
+                return mfa_code
+
+            garth.login(username, password, mfa_handler=handler)
+        else:
+            # Handler that signals the need for MFA without blocking on input.
+            def handler() -> str:  # type: ignore[override]
+                raise NeedMfaChallenge("MFA required")
+
+            garth.login(username, password, mfa_handler=handler)
+
         garth.save(str(token_path))
+    except NeedMfaChallenge:
+        return LoginResult(ok=False, error_code="NEED_MFA", message="MFA required; rerun with --mfa-code")
     except Exception as exc:  # noqa: BLE001
         return LoginResult(ok=False, error_code="LOGIN_FAILED", message=str(exc))
 
