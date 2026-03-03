@@ -59,6 +59,16 @@ def ensure_schema(db_path: Path) -> None:
             );
             """
         )
+        # raw HRV payloads
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS garmin_hrv_raw (
+                date_local TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                ingested_at TEXT NOT NULL
+            );
+            """
+        )
         # sync runs
         cur.execute(
             """
@@ -186,6 +196,32 @@ def upsert_daily_raw(db_path: Path, date_str: str, payload: Dict[str, Any]) -> N
         }
         sql = (
             "INSERT INTO garmin_daily_raw (date_local, payload, ingested_at) "
+            "VALUES (:date_local, :payload, :ingested_at) "
+            "ON CONFLICT(date_local) DO UPDATE SET payload=excluded.payload, ingested_at=excluded.ingested_at"
+        )
+        conn.execute(sql, row)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def upsert_hrv_raw(db_path: Path, date_str: str, payload: Dict[str, Any]) -> None:
+    """Upsert raw HRV payload for a given local date.
+
+    We store the exact JSON returned by get_hrv_data so that mapping can
+    evolve over time without losing information.
+    """
+
+    ensure_schema(db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        row = {
+            "date_local": date_str,
+            "payload": json.dumps(payload, ensure_ascii=False),
+            "ingested_at": _now_iso(),
+        }
+        sql = (
+            "INSERT INTO garmin_hrv_raw (date_local, payload, ingested_at) "
             "VALUES (:date_local, :payload, :ingested_at) "
             "ON CONFLICT(date_local) DO UPDATE SET payload=excluded.payload, ingested_at=excluded.ingested_at"
         )

@@ -30,6 +30,7 @@ from .uhm import (
     map_garmin_daily,
     upsert_uhm_daily,
     upsert_daily_raw,
+    upsert_hrv_raw,
 )
 
 
@@ -314,6 +315,10 @@ def cmd_garmin_hrv_dump(args) -> int:
             return _print_json(payload)
         print("ERROR:", payload["message"])
         return 1
+
+    # Persist raw HRV payload so that mapping can be refined over time.
+    db_path = Path(os.getenv("CLAWHEALTH_DB", "/opt/clawhealth/data/health.db")).expanduser().resolve()
+    upsert_hrv_raw(db_path, target_date, raw or {})
 
     out_path = getattr(args, "out", None)
     if out_path:
