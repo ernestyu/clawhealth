@@ -63,6 +63,30 @@ def ensure_schema(db_path: Path) -> None:
                 hrv_weekly_avg REAL,
                 hrv_status TEXT,
                 hrv_feedback TEXT,
+                -- Training readiness (morning)
+                training_readiness_score REAL,
+                training_readiness_level TEXT,
+                training_readiness_feedback TEXT,
+                training_readiness_recovery_min INTEGER,
+                training_readiness_acute_load REAL,
+                training_readiness_hrv_factor REAL,
+                training_readiness_sleep_factor REAL,
+                training_readiness_stress_factor REAL,
+                -- Training status & load
+                training_status_code INTEGER,
+                training_status_feedback TEXT,
+                training_acwr_percent REAL,
+                training_acwr_status TEXT,
+                training_load_acute REAL,
+                training_load_chronic REAL,
+                training_load_acwr_ratio REAL,
+                -- Endurance & fitness age
+                endurance_overall_score REAL,
+                endurance_classification INTEGER,
+                endurance_feedback TEXT,
+                fitness_age REAL,
+                fitness_age_chronological REAL,
+                fitness_age_achievable REAL,
                 extra_metrics TEXT,
                 source_vendor TEXT NOT NULL DEFAULT 'garmin',
                 driver_version TEXT,
@@ -86,6 +110,46 @@ def ensure_schema(db_path: Path) -> None:
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS garmin_hrv_raw (
+                date_local TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                ingested_at TEXT NOT NULL
+            );
+            """
+        )
+        # raw training readiness payloads
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS garmin_training_readiness_raw (
+                date_local TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                ingested_at TEXT NOT NULL
+            );
+            """
+        )
+        # raw training status payloads
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS garmin_training_status_raw (
+                date_local TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                ingested_at TEXT NOT NULL
+            );
+            """
+        )
+        # raw endurance score payloads
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS garmin_endurance_raw (
+                date_local TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                ingested_at TEXT NOT NULL
+            );
+            """
+        )
+        # raw fitness age payloads (single global record keyed by lastUpdated date)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS garmin_fitness_age_raw (
                 date_local TEXT PRIMARY KEY,
                 payload TEXT NOT NULL,
                 ingested_at TEXT NOT NULL
@@ -307,13 +371,7 @@ def upsert_daily_raw(db_path: Path, date_str: str, payload: Dict[str, Any]) -> N
         conn.close()
 
 
-def upsert_hrv_raw(db_path: Path, date_str: str, payload: Dict[str, Any]) -> None:
-    """Upsert raw HRV payload for a given local date.
-
-    We store the exact JSON returned by get_hrv_data so that mapping can
-    evolve over time without losing information.
-    """
-
+def _upsert_raw_generic(db_path: Path, table: str, date_str: str, payload: Dict[str, Any]) -> None:
     ensure_schema(db_path)
     conn = sqlite3.connect(db_path)
     try:
@@ -323,7 +381,7 @@ def upsert_hrv_raw(db_path: Path, date_str: str, payload: Dict[str, Any]) -> Non
             "ingested_at": _now_iso(),
         }
         sql = (
-            "INSERT INTO garmin_hrv_raw (date_local, payload, ingested_at) "
+            f"INSERT INTO {table} (date_local, payload, ingested_at) "
             "VALUES (:date_local, :payload, :ingested_at) "
             "ON CONFLICT(date_local) DO UPDATE SET payload=excluded.payload, ingested_at=excluded.ingested_at"
         )
@@ -331,6 +389,36 @@ def upsert_hrv_raw(db_path: Path, date_str: str, payload: Dict[str, Any]) -> Non
         conn.commit()
     finally:
         conn.close()
+
+
+def upsert_hrv_raw(db_path: Path, date_str: str, payload: Dict[str, Any]) -> None:
+    _upsert_raw_generic(db_path, "garmin_hrv_raw", date_str, payload)
+
+
+def upsert_training_readiness_raw(db_path: Path, date_str: str, payload: Dict[str, Any]) -> None:
+    _upsert_raw_generic(db_path, "garmin_training_readiness_raw", date_str, payload)
+
+
+def upsert_training_status_raw(db_path: Path, date_str: str, payload: Dict[str, Any]) -> None:
+    _upsert_raw_generic(db_path, "garmin_training_status_raw", date_str, payload)
+
+
+def upsert_endurance_raw(db_path: Path, date_str: str, payload: Dict[str, Any]) -> None:
+    _upsert_raw_generic(db_path, "garmin_endurance_raw", date_str, payload)
+
+
+def upsert_fitness_age_raw(db_path: Path, date_str: str, payload: Dict[str, Any]) -> None:
+    _upsert_raw_generic(db_path, "garmin_fitness_age_raw", date_str, payload)
+
+
+def upsert_hrv_raw(db_path: Path, date_str: str, payload: Dict[str, Any]) -> None:
+    """Upsert raw HRV payload for a given local date.
+
+    We store the exact JSON returned by get_hrv_data so that mapping can
+    evolve over time without losing information.
+    """
+
+    _upsert_raw_generic(db_path, "garmin_hrv_raw", date_str, payload)
 
 
 def map_hrv_into_uhm(db_path: Path, date_str: str) -> None:

@@ -128,6 +128,27 @@ def main(argv: list[str] | None = None) -> int:
         "flags",
         help="Compute simple health flags over recent days",
     )
+
+    # garmin training-metrics (readiness/status/endurance/fitness-age)
+    sp_garmin_train = sp_garmin_sub.add_parser(
+        "training-metrics",
+        help="Fetch training readiness/status/endurance/fitness-age and map into UHM",
+    )
+    sp_garmin_train.add_argument(
+        "--config-dir",
+        default="/opt/clawhealth/config",
+        help="Directory with Garmin session/config (default: /opt/clawhealth/config)",
+    )
+    sp_garmin_train.add_argument(
+        "--db",
+        default="/opt/clawhealth/data/health.db",
+        help="Path to SQLite DB for UHM data (default: /opt/clawhealth/data/health.db)",
+    )
+    sp_garmin_train.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured JSON status instead of human-readable text",
+    )
     sp_garmin_flags.add_argument(
         "--days",
         type=int,
@@ -216,6 +237,10 @@ def main(argv: list[str] | None = None) -> int:
             from .commands import cmd_garmin_flags as _cmd_garmin_flags
 
             return _cmd_garmin_flags(args)
+        if args.garmin_cmd == "training-metrics":
+            from .commands import cmd_garmin_training_metrics as _cmd_garmin_training_metrics
+
+            return _cmd_garmin_training_metrics(args)
         if args.garmin_cmd == "hrv-dump":
             from .commands import cmd_garmin_hrv_dump as _cmd_garmin_hrv_dump
 

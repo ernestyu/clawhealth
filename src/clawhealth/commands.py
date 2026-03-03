@@ -31,6 +31,10 @@ from .uhm import (
     upsert_uhm_daily,
     upsert_daily_raw,
     upsert_hrv_raw,
+    upsert_training_readiness_raw,
+    upsert_training_status_raw,
+    upsert_endurance_raw,
+    upsert_fitness_age_raw,
 )
 
 
@@ -265,6 +269,112 @@ def cmd_garmin_status(args) -> int:
     print("  Covered to  :", covered_to)
     print("  Freshness   :", f"{data_freshness_hours} h" if data_freshness_hours is not None else "unknown")
     return 0
+
+
+def cmd_garmin_training_metrics(args) -> int:
+    """Fetch training readiness/status/endurance/fitness-age and map into UHM.
+
+    This reuses the existing Garmin session and updates both raw tables and
+    uhm_daily fields for the relevant dates.
+    """
+
+    import os
+    from garminconnect import Garmin
+
+    config_dir = Path(os.getenv("CLAWHEALTH_CONFIG_DIR", args.config_dir)).expanduser().resolve()
+    db_path = Path(os.getenv("CLAWHEALTH_DB", args.db)).expanduser().resolve()
+
+    if not resume_session(config_dir):
+        payload = {
+            "ok": False,
+            "error_code": "AUTH_CHALLENGE_REQUIRED",
+            "message": "Session missing or expired; please run 'clawhealth garmin login' first.",
+        }
+        if args.json:
+            return _print_json(payload)
+        print("ERROR:", payload["message"])
+        return 1
+
+    os.environ.setdefault("GARMINTOKENS", str(config_dir))
+    client = Garmin()
+    client.login(tokenstore=str(config_dir))
+
+    from .uhm import (
+        map_training_readiness_into_uhm,
+        map_training_status_into_uhm,
+        map_endurance_into_uhm,
+        map_fitness_age_into_uhm,
+    )
+
+    ok = True
+    details: dict[str, Any] = {}
+
+    # Morning training readiness
+    try:
+        tr = client.get_morning_training_readiness()
+        calendar_date = tr.get("calendarDate")
+        if calendar_date:
+            upsert_training_readiness_raw(db_path, calendar_date, tr)
+            map_training_readiness_into_uhm(db_path, tr)
+        details["training_readiness"] = {"ok": True, "date": calendar_date}
+    except Exception as exc:  # noqa: BLE001
+        ok = False
+        details["training_readiness"] = {"ok": False, "error": str(exc)}
+
+    # Training status
+    try:
+        ts = client.get_training_status()
+        # training status payload may cover multiple devices; mapping helper handles date
+        upsert_training_status_raw(db_path, "most_recent", ts)
+        map_training_status_into_uhm(db_path, ts)
+        details["training_status"] = {"ok": True}
+    except Exception as exc:  # noqa: BLE001
+        ok = False
+        details["training_status"] = {"ok": False, "error": str(exc)}
+
+    # Endurance score
+    try:
+        es = client.get_endurance_score()
+        # Use endDate or calendarDate inside DTO as key
+        dto = es.get("enduranceScoreDTO") or {}
+        date_key = dto.get("calendarDate") or es.get("endDate") or es.get("startDate")
+        if date_key:
+            upsert_endurance_raw(db_path, date_key, es)
+            map_endurance_into_uhm(db_path, es)
+        details["endurance_score"] = {"ok": True, "date": date_key}
+    except Exception as exc:  # noqa: BLE001
+        ok = False
+        details["endurance_score"] = {"ok": False, "error": str(exc)}
+
+    # Fitness age
+    try:
+        fa = client.get_fitnessage_data()
+        # lastUpdated ISO date-time
+        last_updated = fa.get("lastUpdated")
+        date_key = last_updated.split("T", 1)[0] if isinstance(last_updated, str) else None
+        if date_key:
+            upsert_fitness_age_raw(db_path, date_key, fa)
+            map_fitness_age_into_uhm(db_path, fa)
+        details["fitness_age"] = {"ok": True, "date": date_key}
+    except Exception as exc:  # noqa: BLE001
+        ok = False
+        details["fitness_age"] = {"ok": False, "error": str(exc)}
+
+    payload = {
+        "ok": ok,
+        "db": str(db_path),
+        "details": details,
+    }
+
+    if args.json:
+        return _print_json(payload)
+
+    print("Training metrics update:")
+    for key, info in details.items():
+        status = "OK" if info.get("ok") else "ERROR"
+        extra = f"date={info.get('date')}" if info.get("date") else info.get("error", "")
+        print(f"- {key}: {status} {extra}")
+    return 0 if ok else 1
 
 
 def cmd_garmin_hrv_dump(args) -> int:
@@ -610,7 +720,14 @@ def cmd_daily_summary(args) -> int:
             "SELECT sleep_total_min, rhr_bpm, steps, distance_m, calories_total, weight_kg, "
             "stress_avg, stress_max, stress_qualifier, body_battery_start, body_battery_end, "
             "spo2_avg, spo2_lowest, respiration_avg, respiration_lowest, respiration_highest, "
-            "hrv_last_night_avg, hrv_weekly_avg, hrv_status, hrv_feedback, extra_metrics "
+            "hrv_last_night_avg, hrv_weekly_avg, hrv_status, hrv_feedback, "
+            "training_readiness_score, training_readiness_level, training_readiness_feedback, "
+            "training_readiness_recovery_min, training_readiness_acute_load, training_readiness_hrv_factor, "
+            "training_readiness_sleep_factor, training_readiness_stress_factor, "
+            "training_status_code, training_status_feedback, training_acwr_percent, training_acwr_status, "
+            "training_load_acute, training_load_chronic, training_load_acwr_ratio, "
+            "endurance_overall_score, endurance_classification, endurance_feedback, "
+            "fitness_age, fitness_age_chronological, fitness_age_achievable, extra_metrics "
             "FROM uhm_daily WHERE date_local = ?",
             (target_date,),
         )
@@ -667,6 +784,27 @@ def cmd_daily_summary(args) -> int:
             "hrv_weekly_avg": hrv_weekly_avg,
             "hrv_status": hrv_status,
             "hrv_feedback": hrv_feedback,
+            "training_readiness_score": training_readiness_score,
+            "training_readiness_level": training_readiness_level,
+            "training_readiness_feedback": training_readiness_feedback,
+            "training_readiness_recovery_min": training_readiness_recovery_min,
+            "training_readiness_acute_load": training_readiness_acute_load,
+            "training_readiness_hrv_factor": training_readiness_hrv_factor,
+            "training_readiness_sleep_factor": training_readiness_sleep_factor,
+            "training_readiness_stress_factor": training_readiness_stress_factor,
+            "training_status_code": training_status_code,
+            "training_status_feedback": training_status_feedback,
+            "training_acwr_percent": training_acwr_percent,
+            "training_acwr_status": training_acwr_status,
+            "training_load_acute": training_load_acute,
+            "training_load_chronic": training_load_chronic,
+            "training_load_acwr_ratio": training_load_acwr_ratio,
+            "endurance_overall_score": endurance_overall_score,
+            "endurance_classification": endurance_classification,
+            "endurance_feedback": endurance_feedback,
+            "fitness_age": fitness_age,
+            "fitness_age_chronological": fitness_age_chronological,
+            "fitness_age_achievable": fitness_age_achievable,
             "mapping_version": UHM_MAPPING_VERSION,
         }
         return _print_json(payload)
@@ -704,6 +842,19 @@ def cmd_daily_summary(args) -> int:
         print("- 血氧：" + "，".join(parts))
     if respiration_avg is not None:
         print(f"- 呼吸频率（清醒）：{respiration_avg:.0f} 次/分钟")
+    if training_readiness_score is not None or training_readiness_level:
+        parts = []
+        if training_readiness_score is not None:
+            parts.append(f"评分 {training_readiness_score:.0f}")
+        if training_readiness_level:
+            parts.append(str(training_readiness_level))
+        print("- 训练准备度：" + "，".join(parts))
+    if training_status_code is not None or training_status_feedback:
+        print(f"- 训练状态：code={training_status_code}, {training_status_feedback or ''}")
+    if fitness_age is not None:
+        ca = f"生理 {fitness_age_chronological:.0f} 岁" if fitness_age_chronological is not None else ""
+        aa = f"可达 {fitness_age_achievable:.0f} 岁" if fitness_age_achievable is not None else ""
+        print(f"- 体能年龄：当前 {fitness_age:.1f} 岁 {ca} {aa}")
     if hrv_last_night_avg is not None or hrv_status is not None:
         # HRV 以“昨夜平均 + 状态”形式展示
         parts = []
