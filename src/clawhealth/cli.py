@@ -15,13 +15,22 @@ and garth. For now, the commands are stubs and will print a clear
 from __future__ import annotations
 
 import argparse
+import json
+from pathlib import Path
 import sys
+
+from .commands import (
+    cmd_daily_summary as _cmd_daily_summary,
+    cmd_garmin_login as _cmd_garmin_login,
+    cmd_garmin_status as _cmd_garmin_status,
+    cmd_garmin_sync as _cmd_garmin_sync,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="clawhealth",
-        description="Health data bridge for OpenClaw",
+        description="Health data bridge for OpenClaw (CLI-first Garmin hub)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -107,30 +116,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "garmin":
         if args.garmin_cmd == "login":
-            sys.stderr.write(
-                "ERROR: 'clawhealth garmin login' is not implemented yet. "
-                "Planned: CLI-based login via python-garminconnect + garth (with MFA).\n"
-            )
-            return 2
+            return _cmd_garmin_login(args)
         if args.garmin_cmd == "sync":
-            sys.stderr.write(
-                "ERROR: 'clawhealth garmin sync' is not implemented yet. "
-                "Planned: sync Garmin data into a local SQLite UHM DB.\n"
-            )
-            return 2
+            return _cmd_garmin_sync(args)
         if args.garmin_cmd == "status":
-            sys.stderr.write(
-                "ERROR: 'clawhealth garmin status' is not implemented yet. "
-                "Planned: show sync status and data freshness from SQLite.\n"
-            )
-            return 2
+            return _cmd_garmin_status(args)
 
     if args.command == "daily-summary":
-        sys.stderr.write(
-            "ERROR: 'clawhealth daily-summary' is not implemented yet. "
-            "Planned: daily human/agent-friendly summary from UHM.\n"
-        )
-        return 2
+        return _cmd_daily_summary(args)
 
     parser.print_help()
     return 0
