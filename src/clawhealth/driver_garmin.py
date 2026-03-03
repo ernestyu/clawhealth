@@ -23,6 +23,7 @@ import garth
 from garth.exc import GarthException
 from garth import sso
 from garminconnect import Garmin
+import pickle
 
 
 class NeedMfaChallenge(Exception):
@@ -76,18 +77,16 @@ def login(
         if mfa_code:
             # Second step: complete login with a known MFA code using
             # the stored client_state from the previous NEED_MFA step.
-            state_path = config_dir / "garth_mfa_state.json"
+            state_path = config_dir / "garth_mfa_state.pkl"
             if not state_path.exists():
                 return LoginResult(
                     ok=False,
                     error_code="MFA_STATE_MISSING",
                     message="MFA state missing; run login without --mfa-code first",
                 )
-            import json
 
-            client_state = json.loads(state_path.read_text(encoding="utf-8"))
-            # Recreate a client from stored state: for simplicity we use
-            # sso.resume_login directly.
+            client_state = pickle.loads(state_path.read_bytes())
+            # Use sso.resume_login to complete login.
             oauth1, oauth2 = sso.resume_login(client_state, mfa_code)
             garth.client.configure(oauth1_token=oauth1, oauth2_token=oauth2, domain=oauth1.domain)
             state_path.unlink(missing_ok=True)
@@ -98,10 +97,8 @@ def login(
             if isinstance(result, tuple) and len(result) >= 1 and result[0] == "needs_mfa":
                 # Persist MFA client_state for the second step.
                 _, client_state = result
-                import json
-
-                state_path = config_dir / "garth_mfa_state.json"
-                state_path.write_text(json.dumps(client_state), encoding="utf-8")
+                state_path = config_dir / "garth_mfa_state.pkl"
+                state_path.write_bytes(pickle.dumps(client_state))
                 raise NeedMfaChallenge("MFA required")
             # Otherwise, login succeeded without MFA (tokens already on client).
 
