@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to this project will be documented in this file.
 
@@ -7,13 +7,22 @@ Semantic Versioning.
 
 ## [Unreleased]
 
+- (empty)
+
+## [0.1.0] - 2026-03-17
+
 ### Added
-- OpenClaw Skill packaging (`skills/clawhealth/`).
+- OpenClaw skill packaging (`skills/clawhealth/`).
 - Skill validation and minimal test scripts.
 - Publish checklist and release template.
+- Stage 2 endpoints: sleep-dump, body-composition, activities, activity-details, menstrual, menstrual-calendar.
+- Raw tables for sleep/body composition/activity/menstrual payloads.
+- Daily summary now includes sleep stages/score and body composition fields.
+- Skill metadata env requirements and a `.clawhubignore` publish filter.
 
 ### Changed
 - Python dependencies now include upper bounds for stability.
+- Documentation updated with advanced endpoints and OpenClaw-first feature list.
 
 ### Fixed
 - Removed duplicate `upsert_hrv_raw` definition.

@@ -8,6 +8,9 @@ commands that OpenClaw agents can call.
 
 The primary deliverable of this repo is the OpenClaw skill at `skills/clawhealth/`.
 
+Unlike markdown-based Garmin skills, ClawHealth provides structured SQLite + JSON outputs for
+reliable agent workflows and long-term analysis.
+
 ## What It Can Do
 
 - Login with Garmin username/password (MFA supported)
@@ -24,6 +27,55 @@ Notes:
 
 - Some metrics depend on your Garmin device and account settings (e.g., sleep stages, body composition, menstrual data).
 - Menstrual endpoints require garminconnect support; if missing, the command returns `UNSUPPORTED_ENDPOINT`.
+
+## Security model
+
+- This skill runs entirely in your local OpenClaw environment.
+- Garmin credentials and session data never leave your machine.
+- No data is sent to the skill author or any third-party service.
+- Prefer using a password file instead of inline passwords.
+- Do not commit `.env`, password files, or local databases.
+
+## Example JSON Output
+
+```json
+{
+  "ok": true,
+  "date": "2026-03-16",
+  "sleep_total_min": 410,
+  "sleep_score": 78,
+  "rhr_bpm": 58,
+  "hrv_last_night_avg": 42,
+  "training_readiness_score": 65,
+  "training_status_feedback": "Maintaining",
+  "endurance_overall_score": 72,
+  "mapping_version": "uhm_v1"
+}
+```
+
+Designed for direct agent consumption (stable JSON schema).
+
+## Command Overview
+
+Core:
+- `daily-summary`
+- `garmin trend-summary`
+
+Advanced:
+- `garmin training-metrics`
+- `garmin sleep-dump`
+- `garmin body-composition`
+- `garmin activities`
+- `garmin activity-details`
+- `garmin hrv-dump`
+- `garmin menstrual`
+- `garmin menstrual-calendar`
+
+## Minimal Workflow Example
+
+1. `clawhealth daily-summary --json`
+2. feed into agent
+3. generate daily health report
 
 ## OpenClaw (Primary)
 

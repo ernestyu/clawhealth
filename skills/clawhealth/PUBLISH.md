@@ -29,7 +29,7 @@ python {baseDir}/bootstrap_deps.py
 ## 6. Publish
 ```bash
 clawhub login
-clawhub publish {baseDir} --slug clawhealth-garmin --name "clawhealth-garmin" --version 0.0.1
+clawhub publish {baseDir} --slug clawhealth-garmin --name "clawhealth-garmin" --version 0.1.0
 ```
 
 ## 7. Release Notes

@@ -1,0 +1,27 @@
+﻿# ClawHub publish ignore for skill package
+
+# Secrets / local config
+.env
+*.env
+config/
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.pkl
+garmin_pass*.txt
+
+# Python caches
+__pycache__/
+*.pyc
+.pytest_cache/
+.cache/
+
+# Virtual env
+.venv/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
