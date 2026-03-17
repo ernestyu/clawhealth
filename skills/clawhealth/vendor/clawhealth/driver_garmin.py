@@ -151,14 +151,43 @@ def make_client(config_dir: Path):
     """
 
     from garminconnect import Garmin
-
-    client = Garmin()
-    # Point GARMINTOKENS to our garth token directory so Garmin can
-    # reuse the same token store. This avoids re-entering credentials.
+    import inspect
     import os
 
+    def _supports_param(fn, name: str) -> bool:
+        try:
+            sig = inspect.signature(fn)
+        except Exception:
+            return False
+        return name in sig.parameters
+
+    # Prefer passing tokenstore to Garmin() if supported (older versions may
+    # accept it in __init__ instead of login()).
+    ctor_kwargs = {}
+    for key in ("tokenstore", "token_store", "token_store_path"):
+        if _supports_param(Garmin, key):
+            ctor_kwargs[key] = str(config_dir)
+            break
+
+    client = Garmin(**ctor_kwargs) if ctor_kwargs else Garmin()
+
+    # Point GARMINTOKENS to our garth token directory so Garmin can reuse tokens.
     os.environ.setdefault("GARMINTOKENS", str(config_dir))
-    client.login(tokenstore=str(config_dir))
+
+    # Try login() with tokenstore parameter if available; otherwise fallback to
+    # parameter-less login() (which should reuse GARMINTOKENS).
+    try:
+        if _supports_param(client.login, "tokenstore"):
+            client.login(tokenstore=str(config_dir))
+        elif _supports_param(client.login, "token_store"):
+            client.login(token_store=str(config_dir))
+        elif _supports_param(client.login, "token_store_path"):
+            client.login(token_store_path=str(config_dir))
+        else:
+            client.login()
+    except TypeError:
+        # Legacy signature mismatch: fallback to parameter-less login.
+        client.login()
     return client
 
 

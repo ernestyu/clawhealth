@@ -89,13 +89,18 @@ def main() -> int:
                 f"vendored file out of date: {src_file.name} (run sync_vendor.py)",
             )
 
-    # Guard against stale vendored code (must use tokenstore-based login).
+    # Guard against stale vendored code: driver_garmin must support legacy
+    # garminconnect signatures (tokenstore may not be accepted).
     driver_path = vendor_dir / "clawhealth" / "driver_garmin.py"
     _require(driver_path.exists(), "vendored driver_garmin.py not found")
     driver_text = driver_path.read_text(encoding="utf-8")
     _require(
-        "login(tokenstore=" in driver_text,
-        "vendored driver_garmin.py is stale (missing login(tokenstore=...))",
+        "def _supports_param" in driver_text,
+        "vendored driver_garmin.py is stale (missing signature detection for login/ctor)",
+    )
+    _require(
+        "TypeError" in driver_text and "client.login()" in driver_text,
+        "vendored driver_garmin.py is stale (missing login fallback for legacy garminconnect)",
     )
 
     proc = subprocess.run(
