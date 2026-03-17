@@ -1,120 +1,106 @@
 ---
 name: clawhealth-garmin
-description: Garmin Connect 数据同步与健康摘要（SQLite/JSON），通过 clawhealth CLI。
+description: Sync Garmin Connect health summaries into local SQLite and return JSON-friendly outputs for OpenClaw.
 metadata: {"openclaw":{"requires":{"bins":["python"]},"homepage":"https://github.com/ernestyu/clawhealth","tags":["health","garmin","sqlite","cli"]}}
 ---
 
-# Clawhealth Garmin Skill / Garmin 健康数据技能
+# clawhealth-garmin (OpenClaw Skill)
 
-本技能通过 `clawhealth` CLI 连接 Garmin Connect，将每日健康摘要同步到本地
-SQLite 数据库，并提供 JSON 输出，便于 Agent 或脚本消费。
+This skill connects to Garmin Connect, syncs daily health summaries into a
+local SQLite database, and exposes small commands with JSON output that
+OpenClaw agents can consume.
 
-This skill uses the `clawhealth` CLI to connect to Garmin Connect, sync
-daily summaries into a local SQLite DB, and produce JSON outputs for
-automation and agent workflows.
+## What It Does
 
-## 适用场景 / When To Use
+- Login with username/password (MFA supported)
+- Sync daily summary signals into SQLite
+- Provide `--json` outputs for agent workflows
 
-- 已有 Garmin 账号，希望本地保存健康摘要数据。
-- 需要结构化 JSON 输出用于自动化或分析。
-
-## 前置条件 / Prerequisites
+## Prerequisites
 
 - Python 3.10+
-- 可访问 Garmin Connect 的网络环境
-- Garmin 账号（可能需要 MFA）
-- Docker 用户可选：使用预装依赖的镜像 `ernestyu/openclaw-patched`
+- Network access to Garmin Connect
+- Garmin account (may require MFA)
 
-## 安装 / Install
+If you run OpenClaw in Docker, you may prefer a prepatched image that already
+includes the required Python dependencies:
 
-1.（可选）安装 `clawhealth`（二选一）:
+- `ernestyu/openclaw-patched`
 
-```bash
-python -m pip install git+https://github.com/ernestyu/clawhealth
-```
+## Setup
 
-```bash
-python -m pip install -e /path/to/clawhealth
-```
+1) Create `{baseDir}/.env` (see `{baseDir}/ENV.example`).
 
-2. 配置凭证（推荐密码文件）:
+Recommended: use `CLAWHEALTH_GARMIN_PASSWORD_FILE` (password file) rather than
+`CLAWHEALTH_GARMIN_PASSWORD` (plaintext env var).
 
-使用本目录下的 `ENV.example`，在同目录创建 `.env`。脚本会自动加载。
-
-## 登录 / Login (MFA)
-
-```bash
-python {baseDir}/run_clawhealth.py garmin login --json
-```
-
-若返回 `NEED_MFA`，请输入验证码:
-
-```bash
-python {baseDir}/run_clawhealth.py garmin login --mfa-code 123456 --json
-```
-
-## 常用命令 / Common Commands
-
-同步一段日期:
-
-```bash
-python {baseDir}/run_clawhealth.py garmin sync --since 2026-03-01 --until 2026-03-03 --json
-```
-
-查看同步状态:
-
-```bash
-python {baseDir}/run_clawhealth.py garmin status --json
-```
-
-获取日摘要（JSON）:
-
-```bash
-python {baseDir}/run_clawhealth.py daily-summary --date 2026-03-03 --json
-```
-
-## 输出与数据位置 / Output & Data Locations
-
-默认数据位置位于技能目录内：
-
-- `{baseDir}/config`
-- `{baseDir}/data/health.db`
-
-可通过 `CLAWHEALTH_CONFIG_DIR` 和 `CLAWHEALTH_DB` 覆盖。
-
-JSON 输出适合 Agent 解析；原始与映射后的数据均存入 SQLite。
-
-## 发布自检 / Publish Validation
-
-安装依赖（如需）：
+2) Install Python dependencies (if needed):
 
 ```bash
 python {baseDir}/bootstrap_deps.py
 ```
 
-说明：技能目录下自带 `clawhealth` 代码（`{baseDir}/vendor/`），一般不需要额外安装
-`clawhealth`；只需要补齐第三方依赖即可。
+Notes:
 
-运行发布自检：
+- The skill ships a vendored copy of `clawhealth` under `{baseDir}/vendor/`.
+- Bootstrap installs third-party deps only (`garth`, `garminconnect`) into `{baseDir}/.venv`.
+- `{baseDir}/run_clawhealth.py` will automatically re-exec into the venv if present.
+
+## Commands
+
+Login (may return `NEED_MFA`):
+
+```bash
+python {baseDir}/run_clawhealth.py garmin login --json
+```
+
+Complete MFA:
+
+```bash
+python {baseDir}/run_clawhealth.py garmin login --mfa-code 123456 --json
+```
+
+Sync:
+
+```bash
+python {baseDir}/run_clawhealth.py garmin sync --since 2026-03-01 --until 2026-03-03 --json
+```
+
+Status:
+
+```bash
+python {baseDir}/run_clawhealth.py garmin status --json
+```
+
+Daily summary:
+
+```bash
+python {baseDir}/run_clawhealth.py daily-summary --date 2026-03-03 --json
+```
+
+## Data Locations
+
+- Tokens/config: `{baseDir}/config`
+- SQLite DB: `{baseDir}/data/health.db`
+
+Override with `CLAWHEALTH_CONFIG_DIR` and `CLAWHEALTH_DB`.
+
+## Publish Validation
 
 ```bash
 python {baseDir}/validate_skill.py
-```
-
-运行最小化测试：
-
-```bash
 python {baseDir}/test_minimal.py
 ```
 
-运行联网集成测试（可跳过）：
+Optional real-account integration test:
 
 ```bash
 CLAWHEALTH_RUN_INTEGRATION_TESTS=1 python {baseDir}/test_integration_optional.py
 ```
 
-## 安全与隐私 / Security & Privacy
+## Security
 
-- 不要打印或记录任何凭证信息。
-- 优先使用密码文件而不是明文环境变量。
-- 本技能仅本地存储数据，不上传到第三方服务。
+- Do not print or log credentials.
+- Prefer a password file over plaintext env vars.
+- Data stays local (SQLite + local token files).
+

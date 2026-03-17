@@ -5,6 +5,8 @@ __pycache__/
 
 # Virtual environments
 .venv/
+.env
+.env.*
 .env.local
 
 # Distribution / packaging
@@ -25,3 +27,9 @@ htmlcov/
 
 # Misc
 .DS_Store
+*.db
+garth_mfa_state.pkl
+oauth1_token.json
+oauth2_token.json
+skills/**/config/
+skills/**/data/
