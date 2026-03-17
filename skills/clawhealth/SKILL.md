@@ -1,7 +1,7 @@
 ---
 name: clawhealth-garmin
 description: Sync Garmin Connect health data into local SQLite and return JSON-friendly outputs for OpenClaw.
-metadata: {"openclaw":{"requires":{"bins":["python"],"env":["CLAWHEALTH_GARMIN_USERNAME","CLAWHEALTH_GARMIN_PASSWORD_FILE"]},"primaryEnv":["CLAWHEALTH_GARMIN_PASSWORD_FILE","CLAWHEALTH_GARMIN_PASSWORD"],"homepage":"https://github.com/ernestyu/clawhealth","tags":["health","garmin","sqlite","cli"]}}
+metadata: {"openclaw":{"requires":{"bins":["python"]},"homepage":"https://github.com/ernestyu/clawhealth","tags":["health","garmin","sqlite","cli"]}}
 ---
 
 # clawhealth-garmin (OpenClaw Skill)
