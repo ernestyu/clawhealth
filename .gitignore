@@ -28,6 +28,8 @@ htmlcov/
 # Misc
 .DS_Store
 *.db
+garmin_pass*.txt
+*.pass
 garth_mfa_state.pkl
 oauth1_token.json
 oauth2_token.json

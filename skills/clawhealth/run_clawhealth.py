@@ -54,6 +54,23 @@ def _set_skill_defaults(base_dir: Path) -> None:
     os.environ.setdefault("CLAWHEALTH_DB", str(db_path))
 
 
+def _resolve_env_paths_relative_to_skill(base_dir: Path) -> None:
+    # OpenClaw may invoke this script with a CWD that is not the skill folder.
+    # Treat relative paths in env vars as relative to the skill directory.
+    for key in ("CLAWHEALTH_GARMIN_PASSWORD_FILE", "CLAWHEALTH_CONFIG_DIR", "CLAWHEALTH_DB"):
+        raw = os.environ.get(key)
+        if not raw:
+            continue
+        try:
+            p = Path(raw).expanduser()
+            if not p.is_absolute():
+                p = base_dir / p
+            os.environ[key] = str(p.resolve())
+        except Exception:
+            # Best-effort: keep raw value if resolution fails.
+            continue
+
+
 def _in_docker() -> bool:
     try:
         if Path("/.dockerenv").exists():
@@ -77,6 +94,28 @@ def _missing_deps() -> list[str]:
     return missing
 
 
+def _truthy(v: str | None) -> bool:
+    return (v or "").strip() in ("1", "true", "True", "yes", "YES", "on", "ON")
+
+
+def _bootstrap_deps(base_dir: Path) -> bool:
+    """Best-effort dependency bootstrap into {baseDir}/.venv."""
+    import subprocess
+
+    script = base_dir / "bootstrap_deps.py"
+    if not script.exists():
+        return False
+    proc = subprocess.run([sys.executable, str(script)])
+    return proc.returncode == 0
+
+
+def _exec_into_venv(base_dir: Path) -> None:
+    vpy = _venv_python(base_dir)
+    if not vpy.exists():
+        return
+    os.execv(str(vpy), [str(vpy), str(Path(__file__).resolve()), *sys.argv[1:]])
+
+
 def _audit_env_or_exit(base_dir: Path, argv: list[str]) -> None:
     # Only audit for commands that actually require third-party deps.
     if not argv:
@@ -92,6 +131,15 @@ def _audit_env_or_exit(base_dir: Path, argv: list[str]) -> None:
         return
 
     likely_docker = _in_docker()
+    allow_auto = _truthy(os.environ.get("CLAWHEALTH_AUTO_BOOTSTRAP", "1"))
+    allow_in_docker = _truthy(os.environ.get("CLAWHEALTH_AUTO_BOOTSTRAP_IN_DOCKER", "0"))
+
+    # Auto bootstrap: enabled by default for non-Docker installs. For Docker,
+    # default is to print guidance and recommend a patched image.
+    if allow_auto and (not likely_docker or allow_in_docker):
+        if _bootstrap_deps(base_dir):
+            _exec_into_venv(base_dir)
+
     msg_lines = [
         "Missing Python dependencies: " + ", ".join(missing),
         "Fix:",
@@ -99,12 +147,14 @@ def _audit_env_or_exit(base_dir: Path, argv: list[str]) -> None:
     ]
     if likely_docker:
         msg_lines.append("- If you are using the official OpenClaw Docker image, consider switching to 'ernestyu/openclaw-patched'.")
+        msg_lines.append("- To auto-bootstrap inside Docker (not recommended), set CLAWHEALTH_AUTO_BOOTSTRAP_IN_DOCKER=1.")
 
     payload = {
         "ok": False,
         "error_code": "ENV_MISSING_DEP",
         "missing": missing,
         "likely_docker": likely_docker,
+        "auto_bootstrap_enabled": bool(allow_auto),
         "message": "\n".join(msg_lines),
     }
 
@@ -120,6 +170,7 @@ def main(argv: list[str] | None = None) -> int:
     _reexec_into_venv_if_present(base_dir)
     _load_env(base_dir / ".env")
     _set_skill_defaults(base_dir)
+    _resolve_env_paths_relative_to_skill(base_dir)
 
     # Prefer vendored clawhealth module shipped with the skill (no pip install
     # needed for clawhealth itself). Third-party deps are handled via .venv.

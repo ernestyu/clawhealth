@@ -1,4 +1,4 @@
-# CLI Help Spec (from argparse)
+﻿# CLI Help Spec (from argparse)
 
 ## clawhealth --help
 usage: clawhealth [-h] {garmin,daily-summary} ...
@@ -16,10 +16,11 @@ options:
 
 
 ## clawhealth garmin --help
-usage: clawhealth garmin [-h] {login,sync,status,trend-summary,flags,training-metrics,hrv-dump} ...
+usage: clawhealth garmin [-h]
+                         {login,sync,status,trend-summary,flags,training-metrics,hrv-dump,sleep-dump,body-composition,activities,activity-details,menstrual,menstrual-calendar} ...
 
 positional arguments:
-  {login,sync,status,trend-summary,flags,training-metrics,hrv-dump}
+  {login,sync,status,trend-summary,flags,training-metrics,hrv-dump,sleep-dump,body-composition,activities,activity-details,menstrual,menstrual-calendar}
     login               Perform Garmin login (username/password/MFA) and
                         persist session
     sync                Sync Garmin data into a local SQLite UHM DB
@@ -29,6 +30,13 @@ positional arguments:
     training-metrics    Fetch training readiness/status/endurance/fitness-age
                         and map into UHM
     hrv-dump            Dump raw HRV JSON for a given date (and persist to DB)
+    sleep-dump          Fetch sleep stages/score for a date and persist into DB
+    body-composition    Fetch body composition metrics for a date or range
+    activities          Fetch activity list for a date range and persist raw
+                        payloads
+    activity-details    Fetch full activity details by activity ID
+    menstrual           Fetch menstrual day view for a date (if available)
+    menstrual-calendar  Fetch menstrual calendar range (if available)
 
 options:
   -h, --help            show this help message and exit
@@ -94,6 +102,111 @@ options:
   --out OUT             Optional path to write raw HRV JSON (default: print to
                         stdout)
   --json                Output structured JSON status instead of raw payload
+
+
+## clawhealth garmin sleep-dump --help
+usage: clawhealth garmin sleep-dump [-h] --date DATE [--config-dir CONFIG_DIR]
+                                    [--db DB] [--out OUT] [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --date DATE           Target date (YYYY-MM-DD) for sleep data
+  --config-dir CONFIG_DIR
+                        Directory with Garmin session/config (default:
+                        /opt/clawhealth/config)
+  --db DB               Path to SQLite DB for UHM data (default:
+                        /opt/clawhealth/data/health.db)
+  --out OUT             Optional path to write raw sleep JSON (default: no file)
+  --json                Output structured JSON status instead of raw payload
+
+
+## clawhealth garmin body-composition --help
+usage: clawhealth garmin body-composition [-h] [--date DATE] [--since SINCE]
+                                          [--until UNTIL]
+                                          [--config-dir CONFIG_DIR] [--db DB]
+                                          [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --date DATE           Target date (YYYY-MM-DD). If set, overrides --since/--until.
+  --since SINCE         Start date (YYYY-MM-DD) for body composition range
+  --until UNTIL         End date (YYYY-MM-DD) for body composition range
+  --config-dir CONFIG_DIR
+                        Directory with Garmin session/config (default:
+                        /opt/clawhealth/config)
+  --db DB               Path to SQLite DB for UHM data (default:
+                        /opt/clawhealth/data/health.db)
+  --json                Output structured JSON status instead of human-readable text
+
+
+## clawhealth garmin activities --help
+usage: clawhealth garmin activities [-h] --since SINCE [--until UNTIL]
+                                    [--limit LIMIT] [--activity-type ACTIVITY_TYPE]
+                                    [--config-dir CONFIG_DIR] [--db DB] [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --since SINCE         Start date (YYYY-MM-DD) for activities
+  --until UNTIL         End date (YYYY-MM-DD) for activities
+  --limit LIMIT         Max activities to return (default: 20)
+  --activity-type ACTIVITY_TYPE
+                        Optional activity type filter (e.g., running, cycling)
+  --config-dir CONFIG_DIR
+                        Directory with Garmin session/config (default:
+                        /opt/clawhealth/config)
+  --db DB               Path to SQLite DB for UHM data (default:
+                        /opt/clawhealth/data/health.db)
+  --json                Output structured JSON status instead of human-readable text
+
+
+## clawhealth garmin activity-details --help
+usage: clawhealth garmin activity-details [-h] --activity-id ACTIVITY_ID
+                                          [--config-dir CONFIG_DIR] [--db DB]
+                                          [--out OUT] [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --activity-id ACTIVITY_ID
+                        Garmin activityId (from activities list)
+  --config-dir CONFIG_DIR
+                        Directory with Garmin session/config (default:
+                        /opt/clawhealth/config)
+  --db DB               Path to SQLite DB for UHM data (default:
+                        /opt/clawhealth/data/health.db)
+  --out OUT             Optional path to write raw activity details JSON
+  --json                Output structured JSON status instead of human-readable text
+
+
+## clawhealth garmin menstrual --help
+usage: clawhealth garmin menstrual [-h] --date DATE [--config-dir CONFIG_DIR]
+                                   [--db DB] [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --date DATE           Target date (YYYY-MM-DD) for menstrual data
+  --config-dir CONFIG_DIR
+                        Directory with Garmin session/config (default:
+                        /opt/clawhealth/config)
+  --db DB               Path to SQLite DB for UHM data (default:
+                        /opt/clawhealth/data/health.db)
+  --json                Output structured JSON status instead of human-readable text
+
+
+## clawhealth garmin menstrual-calendar --help
+usage: clawhealth garmin menstrual-calendar [-h] --since SINCE [--until UNTIL]
+                                            [--config-dir CONFIG_DIR] [--db DB]
+                                            [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --since SINCE         Start date (YYYY-MM-DD) for menstrual calendar
+  --until UNTIL         End date (YYYY-MM-DD) for menstrual calendar
+  --config-dir CONFIG_DIR
+                        Directory with Garmin session/config (default:
+                        /opt/clawhealth/config)
+  --db DB               Path to SQLite DB for UHM data (default:
+                        /opt/clawhealth/data/health.db)
+  --json                Output structured JSON status instead of human-readable text
 
 
 ## clawhealth garmin trend-summary --help

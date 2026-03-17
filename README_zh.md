@@ -1,110 +1,130 @@
-# clawhealth
+﻿# clawhealth
 
-**语言：** 中文 | [English](README.md)
+**语言:** 中文 | [English](README.md)
 
-`clawhealth` 是给 OpenClaw 使用的 Garmin → SQLite 健康数据同步引擎（对应技能：
-`clawhealth-garmin`）。
+`clawhealth` 是一个以 OpenClaw 为第一目标的 Garmin Connect 同步工具。它支持
+MFA 登录，将健康数据同步到本地 SQLite，并提供 OpenClaw 可调用的 JSON 命令。
 
-它支持 Garmin Connect 登录（含 MFA），把每日健康摘要同步到本地 SQLite 数据库，
-并以小而稳定的命令输出 JSON，方便 OpenClaw agent 直接调用。
+本仓库的主要产物是 `skills/clawhealth/` 下的 OpenClaw 技能包。
 
-## OpenClaw 快速开始
+## 能做什么
 
-### 1) 安装技能
+- Garmin 用户名/密码登录（支持 MFA）
+- 同步每日健康汇总到 SQLite（步数、总睡眠、压力、Body Battery、SpO2、呼吸、体重等）
+- 获取睡眠分期与睡眠评分（`garmin sleep-dump`）
+- 获取 HRV（`garmin hrv-dump`）与训练指标（`garmin training-metrics`）
+- 获取身体成分（`garmin body-composition`）
+- 获取活动列表与完整活动详情（`garmin activities`、`garmin activity-details`）
+- 获取女性健康日视图与日历范围（实验性，需 garminconnect 支持且账号启用）
+- 输出适合 OpenClaw Agent 的 JSON 结果
+- 在 SQLite 中保存原始 JSON 以便后续精细分析
 
-发布到 ClawHub 后：
+说明：部分数据依赖设备与账号设置（例如睡眠分期、身体成分、女性健康）。
+说明：女性健康接口需要 garminconnect 提供支持，否则会返回 `UNSUPPORTED_ENDPOINT`。
 
-```bash
-openclaw skill install clawhealth-garmin
-```
+## OpenClaw（主要）
 
-本仓库本地开发安装：
+### 第一步：安装技能
 
-```bash
-openclaw skill install --path skills/clawhealth
-```
+OpenClaw 会从 `<workspace>/skills`（优先）和 `~/.openclaw/skills`（共享/本地）加载技能。
+你可以使用以下两种方式安装。
 
-手动从 GitHub 安装（克隆 + 路径安装）：
-
-```bash
-cd ~/.openclaw/workspace
-git clone https://github.com/ernestyu/clawhealth.git
-cd clawhealth
-openclaw skill install --path skills/clawhealth
-```
-
-### 2) 配置凭证
-
-参考 `skills/clawhealth/ENV.example` 在 `skills/clawhealth/.env` 写入配置。
-
-建议用密码文件（`CLAWHEALTH_GARMIN_PASSWORD_FILE`），不要把明文密码直接写到环境变量。某些环境下可以走“纯 MFA、无密码”流程；如果登录失败，再补充密码文件/环境变量即可。
-
-### 3) 安装 Python 依赖（如需要）
-
-如果你的 OpenClaw 环境里还没有 `garminconnect` 与 `garth`，执行：
+方案 A：通过 ClawHub CLI 安装（发布后推荐）：
 
 ```bash
-python skills/clawhealth/bootstrap_deps.py
+npm i -g clawhub
+clawhub install clawhealth-garmin
 ```
 
-该脚本会创建 `skills/clawhealth/.venv` 并安装依赖；`run_clawhealth.py` 会自动切换到
-这个 venv 运行。
-
-说明：技能目录下自带了 `clawhealth` 代码（`skills/clawhealth/vendor/`），因此使用技能时
-不需要额外 `pip install clawhealth`；只需要补齐第三方依赖即可。
-
-### 4) 登录、同步、查询
-
-登录（可能返回 `NEED_MFA`）：
+方案 B：从 GitHub 源码安装（物理放置到 workspace/skills）：
 
 ```bash
-python skills/clawhealth/run_clawhealth.py garmin login --json
+git clone https://github.com/ernestyu/clawhealth.git /home/node/.openclaw/workspace/clawhealth_temp
+mv /home/node/.openclaw/workspace/clawhealth_temp/skills/clawhealth /home/node/.openclaw/workspace/skills/
+rm -rf /home/node/.openclaw/workspace/clawhealth_temp
 ```
 
-输入 MFA：
+### 第二步：首次运行的依赖
+
+原生 OpenClaw（非 Docker）：
+- 首次执行 Garmin 相关命令时，`run_clawhealth.py` 会尝试自动安装依赖到 `skills/clawhealth/.venv`。
+- 可通过 `CLAWHEALTH_AUTO_BOOTSTRAP=0` 关闭自动安装。
+
+Docker OpenClaw：
+- 推荐使用 `ernestyu/openclaw-patched`（已打好依赖补丁）。
+- 若仍使用官方镜像，可在容器内执行 `python skills/clawhealth/bootstrap_deps.py`
+  （或设置 `CLAWHEALTH_AUTO_BOOTSTRAP_IN_DOCKER=1` 允许自动安装）。
+
+### 第三步：配置用户名与密码
+
+两种方式任选其一：
+
+- 让 OpenClaw 写入配置文件：
+  在 `skills/clawhealth/` 下创建 `.env` 与密码文件（参考 `skills/clawhealth/ENV.example`）。
+- 在终端中手工配置（容器示例）：
+
+```bash
+docker exec -it openclaw sh -c '
+cd ~/.openclaw/workspace/skills/clawhealth &&
+printf "CLAWHEALTH_GARMIN_USERNAME=you@example.com\nCLAWHEALTH_GARMIN_PASSWORD_FILE=./garmin_pass.txt\n" > .env &&
+printf "YOUR_GARMIN_PASSWORD" > garmin_pass.txt &&
+chmod 600 .env garmin_pass.txt &&
+echo "配置完成，请回到聊天界面触发登录。"
+'
+```
+
+说明：
+
+- 像 `./garmin_pass.txt` 这样的相对路径会由 `run_clawhealth.py` 解析为技能目录下的路径。
+- 请不要把 `.env` 与密码文件提交到 git，并注意文件权限。
+
+### 第四步：登录（MFA）与同步
+
+登录步骤 1（触发 MFA，需要用户名 + 密码来源）：
+
+```bash
+python skills/clawhealth/run_clawhealth.py garmin login --username you@example.com --json
+```
+
+登录步骤 2（提交 MFA 验证码）：
 
 ```bash
 python skills/clawhealth/run_clawhealth.py garmin login --mfa-code 123456 --json
 ```
 
-同步一段日期：
+同步与查询：
 
 ```bash
 python skills/clawhealth/run_clawhealth.py garmin sync --since 2026-03-01 --until 2026-03-03 --json
-```
-
-查询日摘要：
-
-```bash
 python skills/clawhealth/run_clawhealth.py daily-summary --date 2026-03-03 --json
 ```
 
-## Docker（补丁镜像）
+### 可选：高级接口
 
-如果你用 Docker 跑 OpenClaw，可以使用我提供的补丁镜像（已包含本技能需要的 Python 依赖）：
+女性健康接口为实验性功能，需 garminconnect 版本支持。
 
-- 镜像：`ernestyu/openclaw-patched`
-- 一键安装/启动脚本：`https://github.com/ernestyu/openclaw-launcher`
+```bash
+python skills/clawhealth/run_clawhealth.py garmin sleep-dump --date 2026-03-03 --json
+python skills/clawhealth/run_clawhealth.py garmin body-composition --date 2026-03-03 --json
+python skills/clawhealth/run_clawhealth.py garmin activities --since 2026-03-01 --until 2026-03-03 --json
+python skills/clawhealth/run_clawhealth.py garmin activity-details --activity-id 123456789 --json
+python skills/clawhealth/run_clawhealth.py garmin menstrual --date 2026-03-03 --json
+python skills/clawhealth/run_clawhealth.py garmin menstrual-calendar --since 2026-03-01 --until 2026-03-31 --json
+```
 
-## 数据与安全说明
+## 不使用 OpenClaw（次要）
 
-- SQLite 数据库路径由 `CLAWHEALTH_DB` 控制（技能内默认：`skills/clawhealth/data/health.db`）。
-- Garmin session token 存放在 `CLAWHEALTH_CONFIG_DIR`（技能内默认：`skills/clawhealth/config`）。
-- `clawhealth` 不会把健康数据上传到第三方服务；数据只保存在本地文件中。
-
-## 独立 CLI（开发者）
-
-如果你不在 OpenClaw 环境中使用：
+如需直接使用 CLI：
 
 ```bash
 python -m pip install -e .
 clawhealth --help
 ```
 
+## Roadmap
+
+参见 `ROADMAP.md`。
+
 ## 许可证
 
 MIT
-
-## Roadmap
-
-见 `ROADMAP.md`。

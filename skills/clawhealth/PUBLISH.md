@@ -1,9 +1,10 @@
 # ClawHub Publish Checklist
 
 ## 1. Prerequisites
-- `openclaw` CLI installed
+- OpenClaw installed
 - Python 3.10+
 - Optional: network access to install Python deps (unless using a prepatched image)
+- `clawhub` CLI installed (`npm i -g clawhub`)
 
 ## 2. Validate
 ```bash
@@ -27,8 +28,8 @@ python {baseDir}/bootstrap_deps.py
 
 ## 6. Publish
 ```bash
-openclaw clawhub login
-openclaw skill publish {baseDir}
+clawhub login
+clawhub publish {baseDir} --slug clawhealth-garmin --name "clawhealth-garmin" --version 0.0.1
 ```
 
 ## 7. Release Notes

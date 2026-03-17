@@ -26,5 +26,5 @@ One or two sentences describing the release.
 - (Optional) `python skills/clawhealth/test_integration_optional.py`
 
 ## Publish
-- `openclaw clawhub login`
-- `openclaw skill publish skills/clawhealth`
+- `clawhub login`
+- `clawhub publish skills/clawhealth --slug clawhealth-garmin --name "clawhealth-garmin" --version vX.Y.Z`

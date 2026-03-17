@@ -5,6 +5,10 @@ CLI-first design:
     clawhealth garmin login --username ... --password-file ... [--mfa-code ...]
     clawhealth garmin sync --since 2026-03-01 --until 2026-03-03
     clawhealth garmin status --json
+    clawhealth garmin sleep-dump --date 2026-03-02
+    clawhealth garmin body-composition --since 2026-03-01 --until 2026-03-03
+    clawhealth garmin activities --since 2026-03-01 --until 2026-03-03
+    clawhealth garmin activity-details --activity-id 123456789
     clawhealth daily-summary --date 2026-03-02
 
 Garmin Phase 1 implementation will be built on top of python-garminconnect
@@ -191,6 +195,196 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Output structured JSON status instead of raw payload",
     )
+
+    # garmin sleep-dump (sleep stages/score)
+    sp_garmin_sleep = sp_garmin_sub.add_parser(
+        "sleep-dump",
+        help="Fetch sleep stages/score for a date and persist into DB",
+    )
+    sp_garmin_sleep.add_argument(
+        "--date",
+        required=True,
+        help="Target date (YYYY-MM-DD) for sleep data",
+    )
+    sp_garmin_sleep.add_argument(
+        "--config-dir",
+        default=os.getenv("CLAWHEALTH_CONFIG_DIR", "/opt/clawhealth/config"),
+        help="Directory with Garmin session/config (default: %(default)s)",
+    )
+    sp_garmin_sleep.add_argument(
+        "--db",
+        default=os.getenv("CLAWHEALTH_DB", "/opt/clawhealth/data/health.db"),
+        help="Path to SQLite DB for UHM data (default: %(default)s)",
+    )
+    sp_garmin_sleep.add_argument(
+        "--out",
+        help="Optional path to write raw sleep JSON (default: no file)",
+    )
+    sp_garmin_sleep.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured JSON status instead of raw payload",
+    )
+
+    # garmin body-composition (range)
+    sp_garmin_body = sp_garmin_sub.add_parser(
+        "body-composition",
+        help="Fetch body composition metrics for a date or range",
+    )
+    sp_garmin_body.add_argument(
+        "--date",
+        help="Target date (YYYY-MM-DD). If set, overrides --since/--until.",
+    )
+    sp_garmin_body.add_argument(
+        "--since",
+        help="Start date (YYYY-MM-DD) for body composition range",
+    )
+    sp_garmin_body.add_argument(
+        "--until",
+        help="End date (YYYY-MM-DD) for body composition range",
+    )
+    sp_garmin_body.add_argument(
+        "--config-dir",
+        default=os.getenv("CLAWHEALTH_CONFIG_DIR", "/opt/clawhealth/config"),
+        help="Directory with Garmin session/config (default: %(default)s)",
+    )
+    sp_garmin_body.add_argument(
+        "--db",
+        default=os.getenv("CLAWHEALTH_DB", "/opt/clawhealth/data/health.db"),
+        help="Path to SQLite DB for UHM data (default: %(default)s)",
+    )
+    sp_garmin_body.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured JSON status instead of human-readable text",
+    )
+
+    # garmin activities (list)
+    sp_garmin_acts = sp_garmin_sub.add_parser(
+        "activities",
+        help="Fetch activity list for a date range and persist raw payloads",
+    )
+    sp_garmin_acts.add_argument(
+        "--since",
+        required=True,
+        help="Start date (YYYY-MM-DD) for activities",
+    )
+    sp_garmin_acts.add_argument(
+        "--until",
+        help="End date (YYYY-MM-DD) for activities",
+    )
+    sp_garmin_acts.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Max activities to return (default: 20)",
+    )
+    sp_garmin_acts.add_argument(
+        "--activity-type",
+        dest="activity_type",
+        help="Optional activity type filter (e.g., running, cycling)",
+    )
+    sp_garmin_acts.add_argument(
+        "--config-dir",
+        default=os.getenv("CLAWHEALTH_CONFIG_DIR", "/opt/clawhealth/config"),
+        help="Directory with Garmin session/config (default: %(default)s)",
+    )
+    sp_garmin_acts.add_argument(
+        "--db",
+        default=os.getenv("CLAWHEALTH_DB", "/opt/clawhealth/data/health.db"),
+        help="Path to SQLite DB for UHM data (default: %(default)s)",
+    )
+    sp_garmin_acts.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured JSON status instead of human-readable text",
+    )
+
+    # garmin activity-details
+    sp_garmin_act_detail = sp_garmin_sub.add_parser(
+        "activity-details",
+        help="Fetch full activity details by activity ID",
+    )
+    sp_garmin_act_detail.add_argument(
+        "--activity-id",
+        required=True,
+        help="Garmin activityId (from activities list)",
+    )
+    sp_garmin_act_detail.add_argument(
+        "--config-dir",
+        default=os.getenv("CLAWHEALTH_CONFIG_DIR", "/opt/clawhealth/config"),
+        help="Directory with Garmin session/config (default: %(default)s)",
+    )
+    sp_garmin_act_detail.add_argument(
+        "--db",
+        default=os.getenv("CLAWHEALTH_DB", "/opt/clawhealth/data/health.db"),
+        help="Path to SQLite DB for UHM data (default: %(default)s)",
+    )
+    sp_garmin_act_detail.add_argument(
+        "--out",
+        help="Optional path to write raw activity details JSON",
+    )
+    sp_garmin_act_detail.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured JSON status instead of human-readable text",
+    )
+
+    # garmin menstrual (day)
+    sp_garmin_mens = sp_garmin_sub.add_parser(
+        "menstrual",
+        help="Fetch menstrual day view for a date (if available)",
+    )
+    sp_garmin_mens.add_argument(
+        "--date",
+        required=True,
+        help="Target date (YYYY-MM-DD) for menstrual data",
+    )
+    sp_garmin_mens.add_argument(
+        "--config-dir",
+        default=os.getenv("CLAWHEALTH_CONFIG_DIR", "/opt/clawhealth/config"),
+        help="Directory with Garmin session/config (default: %(default)s)",
+    )
+    sp_garmin_mens.add_argument(
+        "--db",
+        default=os.getenv("CLAWHEALTH_DB", "/opt/clawhealth/data/health.db"),
+        help="Path to SQLite DB for UHM data (default: %(default)s)",
+    )
+    sp_garmin_mens.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured JSON status instead of human-readable text",
+    )
+
+    # garmin menstrual-calendar (range)
+    sp_garmin_mens_cal = sp_garmin_sub.add_parser(
+        "menstrual-calendar",
+        help="Fetch menstrual calendar range (if available)",
+    )
+    sp_garmin_mens_cal.add_argument(
+        "--since",
+        required=True,
+        help="Start date (YYYY-MM-DD) for menstrual calendar",
+    )
+    sp_garmin_mens_cal.add_argument(
+        "--until",
+        help="End date (YYYY-MM-DD) for menstrual calendar",
+    )
+    sp_garmin_mens_cal.add_argument(
+        "--config-dir",
+        default=os.getenv("CLAWHEALTH_CONFIG_DIR", "/opt/clawhealth/config"),
+        help="Directory with Garmin session/config (default: %(default)s)",
+    )
+    sp_garmin_mens_cal.add_argument(
+        "--db",
+        default=os.getenv("CLAWHEALTH_DB", "/opt/clawhealth/data/health.db"),
+        help="Path to SQLite DB for UHM data (default: %(default)s)",
+    )
+    sp_garmin_mens_cal.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured JSON status instead of human-readable text",
+    )
     sp_garmin_status.add_argument(
         "--db",
         default=os.getenv("CLAWHEALTH_DB", "/opt/clawhealth/data/health.db"),
@@ -246,6 +440,30 @@ def main(argv: list[str] | None = None) -> int:
             from .commands import cmd_garmin_hrv_dump as _cmd_garmin_hrv_dump
 
             return _cmd_garmin_hrv_dump(args)
+        if args.garmin_cmd == "sleep-dump":
+            from .commands import cmd_garmin_sleep_dump as _cmd_garmin_sleep_dump
+
+            return _cmd_garmin_sleep_dump(args)
+        if args.garmin_cmd == "body-composition":
+            from .commands import cmd_garmin_body_composition as _cmd_garmin_body_composition
+
+            return _cmd_garmin_body_composition(args)
+        if args.garmin_cmd == "activities":
+            from .commands import cmd_garmin_activities as _cmd_garmin_activities
+
+            return _cmd_garmin_activities(args)
+        if args.garmin_cmd == "activity-details":
+            from .commands import cmd_garmin_activity_details as _cmd_garmin_activity_details
+
+            return _cmd_garmin_activity_details(args)
+        if args.garmin_cmd == "menstrual":
+            from .commands import cmd_garmin_menstrual as _cmd_garmin_menstrual
+
+            return _cmd_garmin_menstrual(args)
+        if args.garmin_cmd == "menstrual-calendar":
+            from .commands import cmd_garmin_menstrual_calendar as _cmd_garmin_menstrual_calendar
+
+            return _cmd_garmin_menstrual_calendar(args)
 
     if args.command == "daily-summary":
         return _cmd_daily_summary(args)

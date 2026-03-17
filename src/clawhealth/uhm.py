@@ -87,6 +87,18 @@ def ensure_schema(db_path: Path) -> None:
                 fitness_age REAL,
                 fitness_age_chronological REAL,
                 fitness_age_achievable REAL,
+                -- Sleep stages + score
+                sleep_deep_min INTEGER,
+                sleep_light_min INTEGER,
+                sleep_rem_min INTEGER,
+                sleep_awake_min INTEGER,
+                sleep_score REAL,
+                -- Body composition (units as provided by Garmin)
+                body_fat_percent REAL,
+                body_water_percent REAL,
+                muscle_mass REAL,
+                bone_mass REAL,
+                bmi REAL,
                 extra_metrics TEXT,
                 source_vendor TEXT NOT NULL DEFAULT 'garmin',
                 driver_version TEXT,
@@ -110,6 +122,26 @@ def ensure_schema(db_path: Path) -> None:
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS garmin_hrv_raw (
+                date_local TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                ingested_at TEXT NOT NULL
+            );
+            """
+        )
+        # raw sleep payloads
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS garmin_sleep_raw (
+                date_local TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                ingested_at TEXT NOT NULL
+            );
+            """
+        )
+        # raw body composition payloads
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS garmin_body_composition_raw (
                 date_local TEXT PRIMARY KEY,
                 payload TEXT NOT NULL,
                 ingested_at TEXT NOT NULL
@@ -156,6 +188,49 @@ def ensure_schema(db_path: Path) -> None:
             );
             """
         )
+        # raw activity list payloads
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS garmin_activities_raw (
+                activity_id TEXT PRIMARY KEY,
+                start_time_local TEXT,
+                payload TEXT NOT NULL,
+                ingested_at TEXT NOT NULL
+            );
+            """
+        )
+        # raw activity details payloads
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS garmin_activity_details_raw (
+                activity_id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                ingested_at TEXT NOT NULL
+            );
+            """
+        )
+        # raw menstrual dayview payloads
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS garmin_menstrual_raw (
+                date_local TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                ingested_at TEXT NOT NULL
+            );
+            """
+        )
+        # raw menstrual calendar payloads (range-level)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS garmin_menstrual_calendar_raw (
+                range_start TEXT NOT NULL,
+                range_end TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                ingested_at TEXT NOT NULL,
+                PRIMARY KEY (range_start, range_end)
+            );
+            """
+        )
         # sync runs
         cur.execute(
             """
@@ -173,9 +248,33 @@ def ensure_schema(db_path: Path) -> None:
             );
             """
         )
+        _ensure_columns(
+            cur,
+            "uhm_daily",
+            {
+                "sleep_deep_min": "INTEGER",
+                "sleep_light_min": "INTEGER",
+                "sleep_rem_min": "INTEGER",
+                "sleep_awake_min": "INTEGER",
+                "sleep_score": "REAL",
+                "body_fat_percent": "REAL",
+                "body_water_percent": "REAL",
+                "muscle_mass": "REAL",
+                "bone_mass": "REAL",
+                "bmi": "REAL",
+            },
+        )
         conn.commit()
     finally:
         conn.close()
+
+
+def _ensure_columns(cur: sqlite3.Cursor, table: str, columns: Dict[str, str]) -> None:
+    cur.execute(f"PRAGMA table_info({table})")
+    existing = {row[1] for row in cur.fetchall()}
+    for name, col_type in columns.items():
+        if name not in existing:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN {name} {col_type}")
 
 
 def map_garmin_daily(date_str: str, stats: Dict[str, Any]) -> Dict[str, Any]:
@@ -245,6 +344,27 @@ def map_garmin_daily(date_str: str, stats: Dict[str, Any]) -> Dict[str, Any]:
     respiration_lowest = stats.get("lowestRespirationValue")
     respiration_highest = stats.get("highestRespirationValue")
 
+    # Sleep stage breakdown (seconds -> minutes)
+    def _sec_to_min(val: Any) -> Optional[int]:
+        if isinstance(val, (int, float)):
+            return int(val // 60)
+        return None
+
+    sleep_deep_min = _sec_to_min(stats.get("deepSleepSeconds"))
+    sleep_light_min = _sec_to_min(stats.get("lightSleepSeconds"))
+    sleep_rem_min = _sec_to_min(stats.get("remSleepSeconds"))
+    sleep_awake_min = _sec_to_min(stats.get("awakeSleepSeconds"))
+    sleep_score = stats.get("sleepScore")
+    if isinstance(sleep_score, dict):
+        sleep_score = sleep_score.get("overall") or sleep_score.get("value")
+
+    # Body composition (units as provided by Garmin)
+    body_fat_percent = stats.get("bodyFatPercentage") or stats.get("bodyFat")
+    body_water_percent = stats.get("bodyWaterPercentage") or stats.get("bodyWater")
+    muscle_mass = stats.get("muscleMass") or stats.get("skeletalMuscleMass")
+    bone_mass = stats.get("boneMass")
+    bmi = stats.get("bmi")
+
     extra_metrics = {
         k: v
         for k, v in stats.items()
@@ -280,6 +400,20 @@ def map_garmin_daily(date_str: str, stats: Dict[str, Any]) -> Dict[str, Any]:
             "avgWakingRespirationValue",
             "highestRespirationValue",
             "lowestRespirationValue",
+            "deepSleepSeconds",
+            "lightSleepSeconds",
+            "remSleepSeconds",
+            "awakeSleepSeconds",
+            "sleepScore",
+            "sleepTimeSeconds",
+            "bodyFatPercentage",
+            "bodyFat",
+            "bodyWaterPercentage",
+            "bodyWater",
+            "muscleMass",
+            "skeletalMuscleMass",
+            "boneMass",
+            "bmi",
         }
     }
 
@@ -320,6 +454,22 @@ def map_garmin_daily(date_str: str, stats: Dict[str, Any]) -> Dict[str, Any]:
         "respiration_highest": float(respiration_highest)
         if isinstance(respiration_highest, (int, float))
         else None,
+        # Sleep stages + score
+        "sleep_deep_min": sleep_deep_min,
+        "sleep_light_min": sleep_light_min,
+        "sleep_rem_min": sleep_rem_min,
+        "sleep_awake_min": sleep_awake_min,
+        "sleep_score": float(sleep_score) if isinstance(sleep_score, (int, float)) else None,
+        # Body composition
+        "body_fat_percent": float(body_fat_percent)
+        if isinstance(body_fat_percent, (int, float))
+        else None,
+        "body_water_percent": float(body_water_percent)
+        if isinstance(body_water_percent, (int, float))
+        else None,
+        "muscle_mass": float(muscle_mass) if isinstance(muscle_mass, (int, float)) else None,
+        "bone_mass": float(bone_mass) if isinstance(bone_mass, (int, float)) else None,
+        "bmi": float(bmi) if isinstance(bmi, (int, float)) else None,
         # HRV fields are populated separately from garmin_hrv_raw
         "hrv_last_night_avg": None,
         "hrv_weekly_avg": None,
@@ -415,6 +565,230 @@ def upsert_hrv_raw(db_path: Path, date_str: str, payload: Dict[str, Any]) -> Non
     """
 
     _upsert_raw_generic(db_path, "garmin_hrv_raw", date_str, payload)
+
+
+def upsert_sleep_raw(db_path: Path, date_str: str, payload: Dict[str, Any]) -> None:
+    _upsert_raw_generic(db_path, "garmin_sleep_raw", date_str, payload)
+
+
+def upsert_body_composition_raw(db_path: Path, date_str: str, payload: Dict[str, Any]) -> None:
+    _upsert_raw_generic(db_path, "garmin_body_composition_raw", date_str, payload)
+
+
+def upsert_menstrual_raw(db_path: Path, date_str: str, payload: Dict[str, Any]) -> None:
+    _upsert_raw_generic(db_path, "garmin_menstrual_raw", date_str, payload)
+
+
+def upsert_menstrual_calendar_raw(db_path: Path, start: str, end: str, payload: Dict[str, Any]) -> None:
+    ensure_schema(db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        row = {
+            "range_start": start,
+            "range_end": end,
+            "payload": json.dumps(payload, ensure_ascii=False),
+            "ingested_at": _now_iso(),
+        }
+        sql = (
+            "INSERT INTO garmin_menstrual_calendar_raw (range_start, range_end, payload, ingested_at) "
+            "VALUES (:range_start, :range_end, :payload, :ingested_at) "
+            "ON CONFLICT(range_start, range_end) DO UPDATE SET payload=excluded.payload, ingested_at=excluded.ingested_at"
+        )
+        conn.execute(sql, row)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def ensure_daily_stub(db_path: Path, date_str: str) -> None:
+    """Ensure a minimal uhm_daily row exists for date_str."""
+
+    row = {
+        "date_local": date_str,
+        "ingested_at": _now_iso(),
+        "source_vendor": "garmin",
+        "driver_version": DRIVER_VERSION,
+        "mapping_version": UHM_MAPPING_VERSION,
+    }
+    upsert_uhm_daily(db_path, row)
+
+
+def upsert_activity_raw(db_path: Path, activity_id: str, start_time_local: str | None, payload: Dict[str, Any]) -> None:
+    ensure_schema(db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        row = {
+            "activity_id": str(activity_id),
+            "start_time_local": start_time_local,
+            "payload": json.dumps(payload, ensure_ascii=False),
+            "ingested_at": _now_iso(),
+        }
+        sql = (
+            "INSERT INTO garmin_activities_raw (activity_id, start_time_local, payload, ingested_at) "
+            "VALUES (:activity_id, :start_time_local, :payload, :ingested_at) "
+            "ON CONFLICT(activity_id) DO UPDATE SET "
+            "start_time_local=excluded.start_time_local, payload=excluded.payload, ingested_at=excluded.ingested_at"
+        )
+        conn.execute(sql, row)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def upsert_activity_details_raw(db_path: Path, activity_id: str, payload: Dict[str, Any]) -> None:
+    ensure_schema(db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        row = {
+            "activity_id": str(activity_id),
+            "payload": json.dumps(payload, ensure_ascii=False),
+            "ingested_at": _now_iso(),
+        }
+        sql = (
+            "INSERT INTO garmin_activity_details_raw (activity_id, payload, ingested_at) "
+            "VALUES (:activity_id, :payload, :ingested_at) "
+            "ON CONFLICT(activity_id) DO UPDATE SET payload=excluded.payload, ingested_at=excluded.ingested_at"
+        )
+        conn.execute(sql, row)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def map_sleep_into_uhm(db_path: Path, date_str: str, payload: Dict[str, Any]) -> None:
+    """Map sleep stage breakdown into uhm_daily for date_str."""
+
+    dto = payload.get("dailySleepDTO") or payload.get("sleepData") or payload.get("sleep") or payload
+    if not isinstance(dto, dict):
+        return
+
+    def _sec_to_min(val: Any) -> Optional[int]:
+        if isinstance(val, (int, float)):
+            return int(val // 60)
+        return None
+
+    sleep_score = dto.get("sleepScore")
+    if isinstance(sleep_score, dict):
+        sleep_score = sleep_score.get("overall") or sleep_score.get("value")
+
+    sleep_total_min = _sec_to_min(
+        dto.get("sleepTimeSeconds") or dto.get("duration") or dto.get("durationInSeconds")
+    )
+    deep_min = _sec_to_min(dto.get("deepSleepSeconds"))
+    light_min = _sec_to_min(dto.get("lightSleepSeconds"))
+    rem_min = _sec_to_min(dto.get("remSleepSeconds"))
+    awake_min = _sec_to_min(dto.get("awakeSleepSeconds"))
+
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE uhm_daily
+               SET sleep_total_min = COALESCE(:sleep_total_min, sleep_total_min),
+                   sleep_deep_min = :deep_min,
+                   sleep_light_min = :light_min,
+                   sleep_rem_min = :rem_min,
+                   sleep_awake_min = :awake_min,
+                   sleep_score = :sleep_score
+             WHERE date_local = :date_local
+            """,
+            {
+                "date_local": date_str,
+                "sleep_total_min": sleep_total_min,
+                "deep_min": deep_min,
+                "light_min": light_min,
+                "rem_min": rem_min,
+                "awake_min": awake_min,
+                "sleep_score": float(sleep_score) if isinstance(sleep_score, (int, float)) else None,
+            },
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _coerce_body_comp_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
+    if isinstance(entry.get("bodyComposition"), dict):
+        merged = dict(entry["bodyComposition"])
+        for key in (
+            "weight",
+            "weightKilograms",
+            "bodyFatPercentage",
+            "bodyWaterPercentage",
+            "muscleMass",
+            "skeletalMuscleMass",
+            "boneMass",
+            "bmi",
+        ):
+            if key in entry and key not in merged:
+                merged[key] = entry[key]
+        return merged
+    return entry
+
+
+def _extract_body_comp(payload: Dict[str, Any]) -> Dict[str, Any]:
+    # Try common layouts
+    if "totalAverage" in payload and isinstance(payload.get("totalAverage"), dict):
+        return payload["totalAverage"]
+    if "dateWeightList" in payload and isinstance(payload.get("dateWeightList"), list):
+        items = payload.get("dateWeightList") or []
+        if len(items) == 1 and isinstance(items[0], dict):
+            return _coerce_body_comp_entry(items[0])
+        return {}
+    if "bodyCompositions" in payload and isinstance(payload.get("bodyCompositions"), list):
+        items = payload.get("bodyCompositions") or []
+        if len(items) == 1 and isinstance(items[0], dict):
+            return _coerce_body_comp_entry(items[0])
+        return {}
+    return payload
+
+
+def map_body_composition_into_uhm(db_path: Path, date_str: str, payload: Dict[str, Any]) -> None:
+    """Map body composition summary into uhm_daily for date_str."""
+
+    dto = _extract_body_comp(payload)
+    if not isinstance(dto, dict) or not dto:
+        return
+
+    body_fat_percent = dto.get("bodyFatPercentage") or dto.get("bodyFat")
+    body_water_percent = dto.get("bodyWaterPercentage") or dto.get("bodyWater")
+    muscle_mass = dto.get("muscleMass") or dto.get("skeletalMuscleMass")
+    bone_mass = dto.get("boneMass")
+    bmi = dto.get("bmi")
+    weight_kg = dto.get("weight") or dto.get("weightKilograms") or dto.get("weight_kg")
+
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE uhm_daily
+               SET body_fat_percent = :body_fat_percent,
+                   body_water_percent = :body_water_percent,
+                   muscle_mass = :muscle_mass,
+                   bone_mass = :bone_mass,
+                   bmi = :bmi,
+                   weight_kg = COALESCE(:weight_kg, weight_kg)
+             WHERE date_local = :date_local
+            """,
+            {
+                "date_local": date_str,
+                "body_fat_percent": float(body_fat_percent)
+                if isinstance(body_fat_percent, (int, float))
+                else None,
+                "body_water_percent": float(body_water_percent)
+                if isinstance(body_water_percent, (int, float))
+                else None,
+                "muscle_mass": float(muscle_mass) if isinstance(muscle_mass, (int, float)) else None,
+                "bone_mass": float(bone_mass) if isinstance(bone_mass, (int, float)) else None,
+                "bmi": float(bmi) if isinstance(bmi, (int, float)) else None,
+                "weight_kg": float(weight_kg) if isinstance(weight_kg, (int, float)) else None,
+            },
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def map_training_readiness_into_uhm(db_path: Path, payload: Dict[str, Any]) -> None:

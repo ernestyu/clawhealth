@@ -9,6 +9,7 @@ Phase 1: Garmin login/sync/status + daily-summary.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,11 +20,20 @@ from .uhm import (
     UHM_MAPPING_VERSION,
     _now_iso,
     ensure_schema,
+    ensure_daily_stub,
     log_sync_run,
     map_garmin_daily,
+    map_sleep_into_uhm,
+    map_body_composition_into_uhm,
     upsert_uhm_daily,
     upsert_daily_raw,
     upsert_hrv_raw,
+    upsert_sleep_raw,
+    upsert_body_composition_raw,
+    upsert_activity_raw,
+    upsert_activity_details_raw,
+    upsert_menstrual_raw,
+    upsert_menstrual_calendar_raw,
     upsert_training_readiness_raw,
     upsert_training_status_raw,
     upsert_endurance_raw,
@@ -34,6 +44,50 @@ from .uhm import (
 def _print_json(obj: Any) -> int:
     print(json.dumps(obj, ensure_ascii=False, indent=2))
     return 0 if obj.get("ok", True) else 1
+
+
+def _emit_error(payload: dict[str, Any], *, json_mode: bool, exit_code: int = 1) -> int:
+    if json_mode:
+        return _print_json(payload)
+    print(f"ERROR: {payload.get('message')}")
+    return exit_code
+
+
+def _require_garmin_client(args, config_dir: Path):
+    from .driver_garmin import make_client, resume_session
+
+    if not resume_session(config_dir):
+        payload = {
+            "ok": False,
+            "error_code": "AUTH_CHALLENGE_REQUIRED",
+            "message": "Session missing or expired; please run 'clawhealth garmin login' first.",
+        }
+        return None, payload
+    try:
+        client = make_client(config_dir)
+    except Exception as exc:  # noqa: BLE001
+        payload = {"ok": False, "error_code": "AUTH_FAILED", "message": str(exc)}
+        return None, payload
+    return client, None
+
+
+def _resolve_date_range(date_val: str | None, since: str | None, until: str | None) -> tuple[str, str]:
+    from datetime import date as _date
+
+    if date_val:
+        start = date_val
+        end = date_val
+    else:
+        if not since:
+            raise ValueError("--since or --date is required")
+        start = since
+        end = until or since
+
+    d_start = _date.fromisoformat(start)
+    d_end = _date.fromisoformat(end)
+    if d_end < d_start:
+        raise ValueError("--until must be >= --since")
+    return start, end
 
 
 def cmd_garmin_login(args) -> int:
@@ -59,6 +113,7 @@ def cmd_garmin_login(args) -> int:
         print(f"ERROR: {msg}")
         return 2
 
+    password = ""
     if password_file:
         try:
             password = Path(password_file).read_text(encoding="utf-8").splitlines()[0]
@@ -70,11 +125,16 @@ def cmd_garmin_login(args) -> int:
             return 2
     else:
         password = os.getenv("CLAWHEALTH_GARMIN_PASSWORD") or ""
-        # Some environments can complete login via an MFA-only flow (no password
-        # provided). If that fails, garth will return a LOGIN_FAILED error and
-        # users can fall back to providing a password file/env var.
-        if not password and not args.mfa_code and not args.json:
-            print("NOTE: no password provided; attempting MFA-only login flow.")
+
+    # First-step login typically requires a password to trigger the MFA challenge.
+    # For the second step (when --mfa-code is provided), we resume from stored state
+    # and do not require a password source.
+    if not password and not args.mfa_code:
+        msg = "No password source found (CLAWHEALTH_GARMIN_PASSWORD_FILE or CLAWHEALTH_GARMIN_PASSWORD)"
+        if args.json:
+            return _print_json({"ok": False, "error_code": "MISSING_PASSWORD", "message": msg})
+        print(f"ERROR: {msg}")
+        return 2
 
     result = garmin_login(username=username, password=password, config_dir=config_dir, mfa_code=args.mfa_code)
     if not result.ok:
@@ -306,33 +366,11 @@ def cmd_garmin_training_metrics(args) -> int:
     uhm_daily fields for the relevant dates.
     """
 
-    import os
-    from garminconnect import Garmin
-
     config_dir = Path(os.getenv("CLAWHEALTH_CONFIG_DIR", args.config_dir)).expanduser().resolve()
     db_path = Path(os.getenv("CLAWHEALTH_DB", args.db)).expanduser().resolve()
-
-    if not resume_session(config_dir):
-        payload = {
-            "ok": False,
-            "error_code": "AUTH_CHALLENGE_REQUIRED",
-            "message": "Session missing or expired; please run 'clawhealth garmin login' first.",
-        }
-        if args.json:
-            return _print_json(payload)
-        print("ERROR:", payload["message"])
-        return 1
-
-    os.environ.setdefault("GARMINTOKENS", str(config_dir))
-    try:
-        client = Garmin()
-        client.login(tokenstore=str(config_dir))
-    except Exception as exc:  # noqa: BLE001
-        payload = {"ok": False, "error_code": "AUTH_FAILED", "message": str(exc)}
-        if args.json:
-            return _print_json(payload)
-        print("ERROR:", payload["message"])
-        return 1
+    client, err = _require_garmin_client(args, config_dir)
+    if err:
+        return _emit_error(err, json_mode=args.json)
 
     from .uhm import (
         map_training_readiness_into_uhm,
@@ -354,6 +392,7 @@ def cmd_garmin_training_metrics(args) -> int:
         tr = client.get_morning_training_readiness(today_str)
         calendar_date = tr.get("calendarDate") if isinstance(tr, dict) else today_str
         if calendar_date:
+            ensure_daily_stub(db_path, calendar_date)
             upsert_training_readiness_raw(db_path, calendar_date, tr)
             map_training_readiness_into_uhm(db_path, tr)
         details["training_readiness"] = {"ok": True, "date": calendar_date}
@@ -366,6 +405,14 @@ def cmd_garmin_training_metrics(args) -> int:
         ts = client.get_training_status(today_str)
         # training status payload may cover multiple devices; mapping helper handles date
         upsert_training_status_raw(db_path, "most_recent", ts)
+        # Ensure daily row exists for latest device date
+        most = ts.get("mostRecentTrainingStatus") or {}
+        latest_map = most.get("latestTrainingStatusData") or {}
+        if latest_map:
+            _, dto = next(iter(latest_map.items()))
+            date_key = dto.get("calendarDate")
+            if date_key:
+                ensure_daily_stub(db_path, date_key)
         map_training_status_into_uhm(db_path, ts)
         details["training_status"] = {"ok": True}
     except Exception as exc:  # noqa: BLE001
@@ -379,6 +426,7 @@ def cmd_garmin_training_metrics(args) -> int:
         dto = es.get("enduranceScoreDTO") or {}
         date_key = dto.get("calendarDate") or today_str
         if date_key:
+            ensure_daily_stub(db_path, date_key)
             upsert_endurance_raw(db_path, date_key, es)
             map_endurance_into_uhm(db_path, es)
         details["endurance_score"] = {"ok": True, "date": date_key}
@@ -393,6 +441,7 @@ def cmd_garmin_training_metrics(args) -> int:
         last_updated = fa.get("lastUpdated")
         date_key = last_updated.split("T", 1)[0] if isinstance(last_updated, str) else None
         if date_key:
+            ensure_daily_stub(db_path, date_key)
             upsert_fitness_age_raw(db_path, date_key, fa)
             map_fitness_age_into_uhm(db_path, fa)
         details["fitness_age"] = {"ok": True, "date": date_key}
@@ -425,8 +474,6 @@ def cmd_garmin_hrv_dump(args) -> int:
     """
 
     from datetime import date as _date
-    import os
-    from garminconnect import Garmin
 
     # Validate date format early
     target_date = args.date
@@ -440,29 +487,9 @@ def cmd_garmin_hrv_dump(args) -> int:
         return 1
 
     config_dir = Path(os.getenv("CLAWHEALTH_CONFIG_DIR", args.config_dir)).expanduser().resolve()
-
-    if not resume_session(config_dir):
-        payload = {
-            "ok": False,
-            "error_code": "AUTH_CHALLENGE_REQUIRED",
-            "message": "Session missing or expired; please run 'clawhealth garmin login' first.",
-        }
-        if getattr(args, "json", False):
-            return _print_json(payload)
-        print("ERROR:", payload["message"])
-        return 1
-
-    # Use the same tokenstore-based login as sync
-    os.environ.setdefault("GARMINTOKENS", str(config_dir))
-    try:
-        client = Garmin()
-        client.login(tokenstore=str(config_dir))
-    except Exception as exc:  # noqa: BLE001
-        payload = {"ok": False, "error_code": "AUTH_FAILED", "message": str(exc)}
-        if getattr(args, "json", False):
-            return _print_json(payload)
-        print("ERROR:", payload["message"])
-        return 1
+    client, err = _require_garmin_client(args, config_dir)
+    if err:
+        return _emit_error(err, json_mode=getattr(args, "json", False))
 
     try:
         raw = client.get_hrv_data(target_date)
@@ -481,6 +508,7 @@ def cmd_garmin_hrv_dump(args) -> int:
     from .uhm import map_hrv_into_uhm
 
     try:
+        ensure_daily_stub(db_path, target_date)
         map_hrv_into_uhm(db_path, target_date)
     except Exception:
         # HRV mapping should not break the dump command; raw payload is persisted.
@@ -502,6 +530,361 @@ def cmd_garmin_hrv_dump(args) -> int:
         payload = {"ok": True, "date": target_date, "payload": raw}
         return _print_json(payload)
 
+    print(json.dumps(raw, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_garmin_sleep_dump(args) -> int:
+    """Fetch sleep stages/score for a given date and map into UHM."""
+
+    from datetime import date as _date
+
+    target_date = args.date
+    try:
+        _date.fromisoformat(target_date)
+    except Exception:  # noqa: BLE001
+        payload = {"ok": False, "error_code": "INVALID_DATE", "message": f"Invalid date: {target_date}"}
+        return _emit_error(payload, json_mode=getattr(args, "json", False), exit_code=2)
+
+    config_dir = Path(os.getenv("CLAWHEALTH_CONFIG_DIR", args.config_dir)).expanduser().resolve()
+    db_path = Path(os.getenv("CLAWHEALTH_DB", args.db)).expanduser().resolve()
+
+    client, err = _require_garmin_client(args, config_dir)
+    if err:
+        return _emit_error(err, json_mode=getattr(args, "json", False))
+
+    try:
+        raw = client.get_sleep_data(target_date)
+    except Exception as exc:  # noqa: BLE001
+        payload = {"ok": False, "error_code": "SLEEP_FETCH_ERROR", "message": str(exc)}
+        return _emit_error(payload, json_mode=getattr(args, "json", False))
+
+    upsert_sleep_raw(db_path, target_date, raw or {})
+    ensure_daily_stub(db_path, target_date)
+    map_sleep_into_uhm(db_path, target_date, raw or {})
+
+    out_path = getattr(args, "out", None)
+    if out_path:
+        out = Path(out_path).expanduser().resolve()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = {"ok": True, "date": target_date, "written": str(out), "db": str(db_path)}
+        if getattr(args, "json", False):
+            return _print_json(payload)
+        print(f"Sleep JSON for {target_date} written to {out}")
+        return 0
+
+    if getattr(args, "json", False):
+        payload = {"ok": True, "date": target_date, "payload": raw}
+        return _print_json(payload)
+
+    print(json.dumps(raw, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _activity_date_local(activity: dict[str, Any]) -> str | None:
+    for key in ("startTimeLocal", "startTimeGMT", "startTime"):
+        val = activity.get(key)
+        if isinstance(val, str) and val:
+            # Accept both "YYYY-MM-DD HH:MM:SS" and ISO formats.
+            return val.split("T", 1)[0].split(" ", 1)[0]
+    return None
+
+
+def _summarize_activity(activity: dict[str, Any]) -> dict[str, Any]:
+    act_type = activity.get("activityType") or {}
+    if isinstance(act_type, dict):
+        act_type = act_type.get("typeKey") or act_type.get("typeName")
+    return {
+        "activity_id": activity.get("activityId") or activity.get("activity_id"),
+        "name": activity.get("activityName") or activity.get("activityNameLocal"),
+        "type": act_type,
+        "start_time_local": activity.get("startTimeLocal") or activity.get("startTimeGMT"),
+        "duration_s": activity.get("duration"),
+        "distance_m": activity.get("distance"),
+        "calories": activity.get("calories"),
+        "avg_hr": activity.get("averageHR") or activity.get("avgHR"),
+        "max_hr": activity.get("maxHR"),
+    }
+
+
+def cmd_garmin_activities(args) -> int:
+    """Fetch activities list for a date range and persist raw payloads."""
+
+    from datetime import date as _date
+
+    try:
+        start_date, end_date = _resolve_date_range(None, args.since, args.until)
+        d_start = _date.fromisoformat(start_date)
+        d_end = _date.fromisoformat(end_date)
+    except Exception as exc:  # noqa: BLE001
+        payload = {"ok": False, "error_code": "INVALID_DATE_RANGE", "message": str(exc)}
+        return _emit_error(payload, json_mode=getattr(args, "json", False), exit_code=2)
+
+    config_dir = Path(os.getenv("CLAWHEALTH_CONFIG_DIR", args.config_dir)).expanduser().resolve()
+    db_path = Path(os.getenv("CLAWHEALTH_DB", args.db)).expanduser().resolve()
+    client, err = _require_garmin_client(args, config_dir)
+    if err:
+        return _emit_error(err, json_mode=getattr(args, "json", False))
+
+    limit = max(1, int(args.limit or 20))
+    activity_type = getattr(args, "activity_type", None)
+
+    results: list[dict[str, Any]] = []
+    stored = 0
+    start = 0
+    page_size = min(max(limit, 20), 100)
+    max_pages = 50
+
+    for _ in range(max_pages):
+        batch = client.get_activities(start, page_size, activitytype=activity_type)
+        if not batch:
+            break
+        # Some versions return a dict with "activityList"
+        if isinstance(batch, dict):
+            batch = batch.get("activityList") or []
+        stop = False
+        for activity in batch:
+            if not isinstance(activity, dict):
+                continue
+            date_str = _activity_date_local(activity)
+            if not date_str:
+                continue
+            try:
+                d_act = _date.fromisoformat(date_str)
+            except Exception:
+                continue
+
+            if d_act < d_start:
+                stop = True
+                break
+            if d_act > d_end:
+                continue
+
+            act_id = str(activity.get("activityId") or activity.get("activity_id") or "")
+            if act_id:
+                upsert_activity_raw(db_path, act_id, activity.get("startTimeLocal"), activity)
+                stored += 1
+            results.append(_summarize_activity(activity))
+            if len(results) >= limit:
+                stop = True
+                break
+
+        if stop:
+            break
+        start += len(batch)
+        if len(batch) < page_size:
+            break
+
+    payload = {
+        "ok": True,
+        "from": start_date,
+        "to": end_date,
+        "count": len(results),
+        "stored": stored,
+        "activities": results,
+        "db": str(db_path),
+    }
+    if getattr(args, "json", False):
+        return _print_json(payload)
+
+    print(f"Activities {start_date} .. {end_date}: {len(results)}")
+    for act in results:
+        print(f"- {act.get('start_time_local')}: {act.get('name') or 'Activity'} ({act.get('type')})")
+    return 0
+
+
+def cmd_garmin_activity_details(args) -> int:
+    """Fetch full activity details by activity ID."""
+
+    activity_id = str(getattr(args, "activity_id", "") or "")
+    if not activity_id:
+        payload = {"ok": False, "error_code": "MISSING_ACTIVITY_ID", "message": "--activity-id is required"}
+        return _emit_error(payload, json_mode=getattr(args, "json", False), exit_code=2)
+
+    config_dir = Path(os.getenv("CLAWHEALTH_CONFIG_DIR", args.config_dir)).expanduser().resolve()
+    db_path = Path(os.getenv("CLAWHEALTH_DB", args.db)).expanduser().resolve()
+    client, err = _require_garmin_client(args, config_dir)
+    if err:
+        return _emit_error(err, json_mode=getattr(args, "json", False))
+
+    try:
+        raw = client.get_activity_details(activity_id)
+    except Exception as exc:  # noqa: BLE001
+        payload = {"ok": False, "error_code": "ACTIVITY_FETCH_ERROR", "message": str(exc)}
+        return _emit_error(payload, json_mode=getattr(args, "json", False))
+
+    upsert_activity_details_raw(db_path, activity_id, raw or {})
+
+    out_path = getattr(args, "out", None)
+    if out_path:
+        out = Path(out_path).expanduser().resolve()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = {"ok": True, "activity_id": activity_id, "written": str(out), "db": str(db_path)}
+        if getattr(args, "json", False):
+            return _print_json(payload)
+        print(f"Activity details for {activity_id} written to {out}")
+        return 0
+
+    if getattr(args, "json", False):
+        return _print_json({"ok": True, "activity_id": activity_id, "payload": raw})
+
+    print(json.dumps(raw, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_garmin_body_composition(args) -> int:
+    """Fetch body composition metrics for a date or range."""
+
+    from datetime import date as _date
+
+    try:
+        start_date, end_date = _resolve_date_range(args.date, args.since, args.until)
+    except Exception as exc:  # noqa: BLE001
+        payload = {"ok": False, "error_code": "INVALID_DATE_RANGE", "message": str(exc)}
+        return _emit_error(payload, json_mode=getattr(args, "json", False), exit_code=2)
+
+    # Validate dates early
+    try:
+        _date.fromisoformat(start_date)
+        _date.fromisoformat(end_date)
+    except Exception:  # noqa: BLE001
+        payload = {"ok": False, "error_code": "INVALID_DATE", "message": "Invalid date format; expected YYYY-MM-DD"}
+        return _emit_error(payload, json_mode=getattr(args, "json", False), exit_code=2)
+
+    config_dir = Path(os.getenv("CLAWHEALTH_CONFIG_DIR", args.config_dir)).expanduser().resolve()
+    db_path = Path(os.getenv("CLAWHEALTH_DB", args.db)).expanduser().resolve()
+    client, err = _require_garmin_client(args, config_dir)
+    if err:
+        return _emit_error(err, json_mode=getattr(args, "json", False))
+
+    try:
+        raw = client.get_body_composition(start_date, end_date)
+    except Exception as exc:  # noqa: BLE001
+        payload = {"ok": False, "error_code": "BODY_COMP_FETCH_ERROR", "message": str(exc)}
+        return _emit_error(payload, json_mode=getattr(args, "json", False))
+
+    dates_mapped: list[str] = []
+
+    def _entry_date(entry: dict[str, Any]) -> str | None:
+        for key in ("calendarDate", "date", "day", "startDate"):
+            val = entry.get(key)
+            if isinstance(val, str) and val:
+                return val.split("T", 1)[0]
+        return None
+
+    entries = None
+    if isinstance(raw, dict):
+        if isinstance(raw.get("dateWeightList"), list):
+            entries = raw.get("dateWeightList")
+        elif isinstance(raw.get("bodyCompositions"), list):
+            entries = raw.get("bodyCompositions")
+
+    if entries:
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            date_key = _entry_date(entry)
+            if not date_key:
+                continue
+            upsert_body_composition_raw(db_path, date_key, entry)
+            ensure_daily_stub(db_path, date_key)
+            map_body_composition_into_uhm(db_path, date_key, entry)
+            dates_mapped.append(date_key)
+
+    if not dates_mapped:
+        upsert_body_composition_raw(db_path, start_date, raw or {})
+        ensure_daily_stub(db_path, start_date)
+        map_body_composition_into_uhm(db_path, start_date, raw or {})
+        dates_mapped = [start_date]
+
+    payload = {
+        "ok": True,
+        "from": start_date,
+        "to": end_date,
+        "mapped_dates": sorted(set(dates_mapped)),
+        "db": str(db_path),
+    }
+    if getattr(args, "json", False):
+        return _print_json(payload)
+    print(f"Body composition mapped for {len(payload['mapped_dates'])} day(s)")
+    return 0
+
+
+def cmd_garmin_menstrual(args) -> int:
+    """Fetch menstrual day view for a given date."""
+
+    from datetime import date as _date
+
+    target_date = args.date
+    try:
+        _date.fromisoformat(target_date)
+    except Exception:  # noqa: BLE001
+        payload = {"ok": False, "error_code": "INVALID_DATE", "message": f"Invalid date: {target_date}"}
+        return _emit_error(payload, json_mode=getattr(args, "json", False), exit_code=2)
+
+    config_dir = Path(os.getenv("CLAWHEALTH_CONFIG_DIR", args.config_dir)).expanduser().resolve()
+    db_path = Path(os.getenv("CLAWHEALTH_DB", args.db)).expanduser().resolve()
+    client, err = _require_garmin_client(args, config_dir)
+    if err:
+        return _emit_error(err, json_mode=getattr(args, "json", False))
+
+    if not hasattr(client, "get_menstrual_data_for_date"):
+        payload = {
+            "ok": False,
+            "error_code": "UNSUPPORTED_ENDPOINT",
+            "message": "This garminconnect version does not expose menstrual endpoints.",
+        }
+        return _emit_error(payload, json_mode=getattr(args, "json", False), exit_code=2)
+
+    try:
+        raw = client.get_menstrual_data_for_date(target_date)
+    except Exception as exc:  # noqa: BLE001
+        payload = {"ok": False, "error_code": "MENSTRUAL_FETCH_ERROR", "message": str(exc)}
+        return _emit_error(payload, json_mode=getattr(args, "json", False))
+
+    upsert_menstrual_raw(db_path, target_date, raw or {})
+
+    if getattr(args, "json", False):
+        return _print_json({"ok": True, "date": target_date, "payload": raw, "db": str(db_path)})
+    print(json.dumps(raw, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_garmin_menstrual_calendar(args) -> int:
+    """Fetch menstrual calendar data for a date range."""
+
+    try:
+        start_date, end_date = _resolve_date_range(None, args.since, args.until)
+    except Exception as exc:  # noqa: BLE001
+        payload = {"ok": False, "error_code": "INVALID_DATE_RANGE", "message": str(exc)}
+        return _emit_error(payload, json_mode=getattr(args, "json", False), exit_code=2)
+
+    config_dir = Path(os.getenv("CLAWHEALTH_CONFIG_DIR", args.config_dir)).expanduser().resolve()
+    db_path = Path(os.getenv("CLAWHEALTH_DB", args.db)).expanduser().resolve()
+    client, err = _require_garmin_client(args, config_dir)
+    if err:
+        return _emit_error(err, json_mode=getattr(args, "json", False))
+
+    if not hasattr(client, "get_menstrual_calendar_data"):
+        payload = {
+            "ok": False,
+            "error_code": "UNSUPPORTED_ENDPOINT",
+            "message": "This garminconnect version does not expose menstrual endpoints.",
+        }
+        return _emit_error(payload, json_mode=getattr(args, "json", False), exit_code=2)
+
+    try:
+        raw = client.get_menstrual_calendar_data(start_date, end_date)
+    except Exception as exc:  # noqa: BLE001
+        payload = {"ok": False, "error_code": "MENSTRUAL_CAL_FETCH_ERROR", "message": str(exc)}
+        return _emit_error(payload, json_mode=getattr(args, "json", False))
+
+    upsert_menstrual_calendar_raw(db_path, start_date, end_date, raw or {})
+
+    if getattr(args, "json", False):
+        return _print_json({"ok": True, "from": start_date, "to": end_date, "payload": raw, "db": str(db_path)})
     print(json.dumps(raw, ensure_ascii=False, indent=2))
     return 0
 
@@ -761,7 +1144,8 @@ def cmd_daily_summary(args) -> int:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute(
-            "SELECT sleep_total_min, rhr_bpm, steps, distance_m, calories_total, weight_kg, "
+            "SELECT sleep_total_min, sleep_deep_min, sleep_light_min, sleep_rem_min, sleep_awake_min, sleep_score, "
+            "rhr_bpm, steps, distance_m, calories_total, weight_kg, "
             "stress_avg, stress_max, stress_qualifier, body_battery_start, body_battery_end, "
             "spo2_avg, spo2_lowest, respiration_avg, respiration_lowest, respiration_highest, "
             "hrv_last_night_avg, hrv_weekly_avg, hrv_status, hrv_feedback, "
@@ -771,7 +1155,8 @@ def cmd_daily_summary(args) -> int:
             "training_status_code, training_status_feedback, training_acwr_percent, training_acwr_status, "
             "training_load_acute, training_load_chronic, training_load_acwr_ratio, "
             "endurance_overall_score, endurance_classification, endurance_feedback, "
-            "fitness_age, fitness_age_chronological, fitness_age_achievable, extra_metrics "
+            "fitness_age, fitness_age_chronological, fitness_age_achievable, "
+            "body_fat_percent, body_water_percent, muscle_mass, bone_mass, bmi, extra_metrics "
             "FROM uhm_daily WHERE date_local = ?",
             (target_date,),
         )
@@ -786,6 +1171,11 @@ def cmd_daily_summary(args) -> int:
         r = {k: row[k] for k in row.keys()}
 
         sleep_total_min = r.get("sleep_total_min")
+        sleep_deep_min = r.get("sleep_deep_min")
+        sleep_light_min = r.get("sleep_light_min")
+        sleep_rem_min = r.get("sleep_rem_min")
+        sleep_awake_min = r.get("sleep_awake_min")
+        sleep_score = r.get("sleep_score")
         rhr_bpm = r.get("rhr_bpm")
         steps = r.get("steps")
         distance_m = r.get("distance_m")
@@ -826,6 +1216,11 @@ def cmd_daily_summary(args) -> int:
         fitness_age = r.get("fitness_age")
         fitness_age_chronological = r.get("fitness_age_chronological")
         fitness_age_achievable = r.get("fitness_age_achievable")
+        body_fat_percent = r.get("body_fat_percent")
+        body_water_percent = r.get("body_water_percent")
+        muscle_mass = r.get("muscle_mass")
+        bone_mass = r.get("bone_mass")
+        bmi = r.get("bmi")
         extra_metrics_json = r.get("extra_metrics")
     finally:
         conn.close()
@@ -835,6 +1230,11 @@ def cmd_daily_summary(args) -> int:
             "ok": True,
             "date": target_date,
             "sleep_total_min": sleep_total_min,
+            "sleep_deep_min": sleep_deep_min,
+            "sleep_light_min": sleep_light_min,
+            "sleep_rem_min": sleep_rem_min,
+            "sleep_awake_min": sleep_awake_min,
+            "sleep_score": sleep_score,
             "rhr_bpm": rhr_bpm,
             "steps": steps,
             "distance_m": distance_m,
@@ -875,6 +1275,11 @@ def cmd_daily_summary(args) -> int:
             "fitness_age": fitness_age,
             "fitness_age_chronological": fitness_age_chronological,
             "fitness_age_achievable": fitness_age_achievable,
+            "body_fat_percent": body_fat_percent,
+            "body_water_percent": body_water_percent,
+            "muscle_mass": muscle_mass,
+            "bone_mass": bone_mass,
+            "bmi": bmi,
             "mapping_version": UHM_MAPPING_VERSION,
         }
         return _print_json(payload)
@@ -882,6 +1287,25 @@ def cmd_daily_summary(args) -> int:
     print(f"{target_date} 健康概要（来源：Garmin，本地 {UHM_MAPPING_VERSION}）")
     if sleep_total_min is not None:
         print(f"- 睡眠：{sleep_total_min/60:.1f} 小时")
+    if (
+        sleep_deep_min is not None
+        or sleep_light_min is not None
+        or sleep_rem_min is not None
+        or sleep_awake_min is not None
+        or sleep_score is not None
+    ):
+        parts = []
+        if sleep_deep_min is not None:
+            parts.append(f"deep {sleep_deep_min}m")
+        if sleep_light_min is not None:
+            parts.append(f"light {sleep_light_min}m")
+        if sleep_rem_min is not None:
+            parts.append(f"rem {sleep_rem_min}m")
+        if sleep_awake_min is not None:
+            parts.append(f"awake {sleep_awake_min}m")
+        if sleep_score is not None:
+            parts.append(f"score {sleep_score:.0f}")
+        print("- Sleep stages: " + ", ".join(parts))
     if rhr_bpm is not None:
         print(f"- 静息心率：{rhr_bpm:.0f} bpm")
     if steps is not None:
@@ -892,6 +1316,25 @@ def cmd_daily_summary(args) -> int:
         print(f"- 总能量消耗：{calories_total:.0f} kcal")
     if weight_kg is not None:
         print(f"- 体重：{weight_kg:.1f} kg")
+    if (
+        body_fat_percent is not None
+        or body_water_percent is not None
+        or muscle_mass is not None
+        or bone_mass is not None
+        or bmi is not None
+    ):
+        parts = []
+        if body_fat_percent is not None:
+            parts.append(f"body fat {body_fat_percent:.1f}%")
+        if body_water_percent is not None:
+            parts.append(f"water {body_water_percent:.1f}%")
+        if muscle_mass is not None:
+            parts.append(f"muscle {muscle_mass:.1f}")
+        if bone_mass is not None:
+            parts.append(f"bone {bone_mass:.1f}")
+        if bmi is not None:
+            parts.append(f"bmi {bmi:.1f}")
+        print("- Body composition: " + ", ".join(parts))
     if stress_avg is not None or stress_max is not None or stress_qualifier:
         parts = []
         if stress_avg is not None:
