@@ -1,5 +1,13 @@
 # ClawHub Publish Checklist
 
+## 0. Sync vendored code (recommended)
+
+If you are publishing from the repo, refresh the vendored package:
+
+```bash
+python {baseDir}/sync_vendor.py
+```
+
 ## 1. Prerequisites
 - OpenClaw installed
 - Python 3.10+

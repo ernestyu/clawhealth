@@ -31,6 +31,7 @@ def _require(cond: bool, msg: str) -> None:
 
 def main() -> int:
     base_dir = Path(__file__).resolve().parent
+    repo_src = (base_dir / ".." / ".." / "src" / "clawhealth").resolve()
     skill_md = base_dir / "SKILL.md"
     env_example = base_dir / "ENV.example"
     runner = base_dir / "run_clawhealth.py"
@@ -74,6 +75,28 @@ def main() -> int:
         import clawhealth.cli  # noqa: F401
     except Exception as exc:  # noqa: BLE001
         raise ValueError("vendored clawhealth module is not importable") from exc
+
+    # If this skill lives inside the repo (src/ is present), verify vendor sync.
+    if repo_src.exists():
+        src_files = sorted(p for p in repo_src.glob("*.py"))
+        for src_file in src_files:
+            vend_file = vendor_dir / "clawhealth" / src_file.name
+            _require(vend_file.exists(), f"vendored file missing: {src_file.name}")
+            src_text = src_file.read_text(encoding="utf-8")
+            vend_text = vend_file.read_text(encoding="utf-8")
+            _require(
+                src_text == vend_text,
+                f"vendored file out of date: {src_file.name} (run sync_vendor.py)",
+            )
+
+    # Guard against stale vendored code (must use tokenstore-based login).
+    driver_path = vendor_dir / "clawhealth" / "driver_garmin.py"
+    _require(driver_path.exists(), "vendored driver_garmin.py not found")
+    driver_text = driver_path.read_text(encoding="utf-8")
+    _require(
+        "login(tokenstore=" in driver_text,
+        "vendored driver_garmin.py is stale (missing login(tokenstore=...))",
+    )
 
     proc = subprocess.run(
         [sys.executable, str(runner), "--help"],
