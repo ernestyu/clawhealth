@@ -19,7 +19,7 @@ python {baseDir}/bootstrap_deps.py
 3) 登录（支持 MFA）：
 
 ```bash
-python {baseDir}/run_clawhealth.py garmin login --json
+python {baseDir}/run_clawhealth.py garmin login --username you@example.com --json
 python {baseDir}/run_clawhealth.py garmin login --mfa-code 123456 --json
 ```
 

@@ -64,6 +64,12 @@ def main() -> int:
     bins = requires.get("bins", [])
     _require(isinstance(bins, list) and "python" in bins, "metadata requires bins must include 'python'")
 
+    on_load = metadata.get("openclaw", {}).get("on_load")
+    if isinstance(on_load, str) and on_load.strip():
+        # Support "{baseDir}/file.py" or "file.py"
+        fname = on_load.replace("{baseDir}/", "").replace("{baseDir}\\", "")
+        _require((base_dir / fname).exists(), f"on_load script not found: {on_load}")
+
     # Validate that the vendored clawhealth module is importable.
     vendor_dir = base_dir / "vendor"
     sys.path.insert(0, str(vendor_dir))

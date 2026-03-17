@@ -1,8 +1,8 @@
 # clawhealth
 
-**Languages:** English | [中文](README_zh.md)
+**Languages:** English | [Chinese](README_zh.md)
 
-`clawhealth` is the Garmin → SQLite health sync engine used by the OpenClaw
+`clawhealth` is the Garmin-to-SQLite health sync engine used by the OpenClaw
 skill `clawhealth-garmin`.
 
 It logs into Garmin Connect (supports MFA), syncs daily health summaries
@@ -25,12 +25,23 @@ Local development from this repo:
 openclaw skill install --path skills/clawhealth
 ```
 
+Manual install from GitHub (clone + path install):
+
+```bash
+cd ~/.openclaw/workspace
+git clone https://github.com/ernestyu/clawhealth.git
+cd clawhealth
+openclaw skill install --path skills/clawhealth
+```
+
 ### 2) Configure credentials
 
 Create `skills/clawhealth/.env` based on `skills/clawhealth/ENV.example`.
 
 Recommended: use a password file (`CLAWHEALTH_GARMIN_PASSWORD_FILE`) rather
-than putting the password directly into an environment variable.
+than putting the password directly into an environment variable. Some setups
+can complete login via an MFA-only flow; if login fails, provide a password
+file/env var.
 
 ### 3) Install Python dependencies (if needed)
 
@@ -53,7 +64,7 @@ just to use the skill.
 Login (may return `NEED_MFA`):
 
 ```bash
-python skills/clawhealth/run_clawhealth.py garmin login --json
+python skills/clawhealth/run_clawhealth.py garmin login --username you@example.com --json
 ```
 
 Complete MFA:

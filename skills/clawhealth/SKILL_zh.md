@@ -38,9 +38,8 @@ python {baseDir}/bootstrap_deps.py
 ## 常用命令
 
 ```bash
-python {baseDir}/run_clawhealth.py garmin login --json
+python {baseDir}/run_clawhealth.py garmin login --username you@example.com --json
 python {baseDir}/run_clawhealth.py garmin login --mfa-code 123456 --json
 python {baseDir}/run_clawhealth.py garmin sync --since 2026-03-01 --until 2026-03-03 --json
 python {baseDir}/run_clawhealth.py daily-summary --date 2026-03-03 --json
 ```
-

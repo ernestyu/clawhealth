@@ -24,11 +24,20 @@ openclaw skill install clawhealth-garmin
 openclaw skill install --path skills/clawhealth
 ```
 
+手动从 GitHub 安装（克隆 + 路径安装）：
+
+```bash
+cd ~/.openclaw/workspace
+git clone https://github.com/ernestyu/clawhealth.git
+cd clawhealth
+openclaw skill install --path skills/clawhealth
+```
+
 ### 2) 配置凭证
 
 参考 `skills/clawhealth/ENV.example` 在 `skills/clawhealth/.env` 写入配置。
 
-建议用密码文件（`CLAWHEALTH_GARMIN_PASSWORD_FILE`），不要把明文密码直接写到环境变量。
+建议用密码文件（`CLAWHEALTH_GARMIN_PASSWORD_FILE`），不要把明文密码直接写到环境变量。某些环境下可以走“纯 MFA、无密码”流程；如果登录失败，再补充密码文件/环境变量即可。
 
 ### 3) 安装 Python 依赖（如需要）
 

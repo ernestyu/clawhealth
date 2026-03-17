@@ -1,7 +1,7 @@
 ---
 name: clawhealth-garmin
 description: Sync Garmin Connect health summaries into local SQLite and return JSON-friendly outputs for OpenClaw.
-metadata: {"openclaw":{"requires":{"bins":["python"]},"homepage":"https://github.com/ernestyu/clawhealth","tags":["health","garmin","sqlite","cli"]}}
+metadata: {"openclaw":{"requires":{"bins":["python"]},"homepage":"https://github.com/ernestyu/clawhealth","tags":["health","garmin","sqlite","cli"],"on_load":"{baseDir}/on_load.py"}}
 ---
 
 # clawhealth-garmin (OpenClaw Skill)
@@ -9,6 +9,9 @@ metadata: {"openclaw":{"requires":{"bins":["python"]},"homepage":"https://github
 This skill connects to Garmin Connect, syncs daily health summaries into a
 local SQLite database, and exposes small commands with JSON output that
 OpenClaw agents can consume.
+
+If OpenClaw reports an "audit failed" / "environment missing" error while
+loading this skill, run the dependency bootstrap step in the Setup section.
 
 ## What It Does
 
@@ -32,7 +35,9 @@ includes the required Python dependencies:
 1) Create `{baseDir}/.env` (see `{baseDir}/ENV.example`).
 
 Recommended: use `CLAWHEALTH_GARMIN_PASSWORD_FILE` (password file) rather than
-`CLAWHEALTH_GARMIN_PASSWORD` (plaintext env var).
+`CLAWHEALTH_GARMIN_PASSWORD` (plaintext env var). If your environment supports
+an MFA-only flow, password may be optional; if login fails, provide a password
+file or env var.
 
 2) Install Python dependencies (if needed):
 
@@ -51,7 +56,7 @@ Notes:
 Login (may return `NEED_MFA`):
 
 ```bash
-python {baseDir}/run_clawhealth.py garmin login --json
+python {baseDir}/run_clawhealth.py garmin login --username you@example.com --json
 ```
 
 Complete MFA:
@@ -103,4 +108,3 @@ CLAWHEALTH_RUN_INTEGRATION_TESTS=1 python {baseDir}/test_integration_optional.py
 - Do not print or log credentials.
 - Prefer a password file over plaintext env vars.
 - Data stays local (SQLite + local token files).
-

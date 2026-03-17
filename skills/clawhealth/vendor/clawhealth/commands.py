@@ -52,8 +52,8 @@ def cmd_garmin_login(args) -> int:
     config_dir_val = os.getenv("CLAWHEALTH_CONFIG_DIR", args.config_dir)
     config_dir = Path(config_dir_val).expanduser().resolve()
 
-    if not username and not password_file:
-        msg = "username and --password-file (or CLAWHEALTH_GARMIN_*) are required"
+    if not username:
+        msg = "username is required (--username or CLAWHEALTH_GARMIN_USERNAME)"
         if args.json:
             return _print_json({"ok": False, "error_code": "MISSING_CREDENTIALS", "message": msg})
         print(f"ERROR: {msg}")
@@ -69,15 +69,12 @@ def cmd_garmin_login(args) -> int:
             print(f"ERROR: {msg}")
             return 2
     else:
-        import os
-
         password = os.getenv("CLAWHEALTH_GARMIN_PASSWORD") or ""
-        if not password:
-            msg = "No password source found (CLAWHEALTH_GARMIN_PASSWORD_FILE or CLAWHEALTH_GARMIN_PASSWORD)"
-            if args.json:
-                return _print_json({"ok": False, "error_code": "MISSING_PASSWORD", "message": msg})
-            print(f"ERROR: {msg}")
-            return 2
+        # Some environments can complete login via an MFA-only flow (no password
+        # provided). If that fails, garth will return a LOGIN_FAILED error and
+        # users can fall back to providing a password file/env var.
+        if not password and not args.mfa_code and not args.json:
+            print("NOTE: no password provided; attempting MFA-only login flow.")
 
     result = garmin_login(username=username, password=password, config_dir=config_dir, mfa_code=args.mfa_code)
     if not result.ok:

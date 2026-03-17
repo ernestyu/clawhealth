@@ -21,7 +21,7 @@ Bootstrap only installs third-party dependencies (`garth`, `garminconnect`).
 3) Login (MFA supported):
 
 ```bash
-python {baseDir}/run_clawhealth.py garmin login --json
+python {baseDir}/run_clawhealth.py garmin login --username you@example.com --json
 python {baseDir}/run_clawhealth.py garmin login --mfa-code 123456 --json
 ```
 
