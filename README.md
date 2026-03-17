@@ -82,16 +82,7 @@ Advanced:
 ### Step 1: Install the skill
 
 OpenClaw loads skills from `<workspace>/skills` (highest precedence) and
-`~/.openclaw/skills` (shared/local). You can install this skill in two ways.
-
-Scenario A: Install via ClawHub CLI (recommended, once published):
-
-```bash
-npm i -g clawhub
-clawhub install clawhealth-garmin
-```
-
-Scenario B: Install from GitHub source (physical placement under your workspace):
+`~/.openclaw/skills` (shared/local). You can install this skill by telling your OpenClaw to fetch from GitHub source (physical placement under your workspace):
 
 ```bash
 git clone https://github.com/ernestyu/clawhealth.git /home/node/.openclaw/workspace/clawhealth_temp

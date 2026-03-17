@@ -79,16 +79,7 @@ Advanced:
 ### 第一步：安装技能
 
 OpenClaw 会从 `<workspace>/skills`（优先）和 `~/.openclaw/skills`（共享/本地）加载技能。
-你可以使用以下两种方式安装。
-
-方案 A：通过 ClawHub CLI 安装（发布后推荐）：
-
-```bash
-npm i -g clawhub
-clawhub install clawhealth-garmin
-```
-
-方案 B：从 GitHub 源码安装（物理放置到 workspace/skills）：
+你可以告诉Openclaw，使用如下指令，从 GitHub 源码安装（物理放置到 workspace/skills）：
 
 ```bash
 git clone https://github.com/ernestyu/clawhealth.git /home/node/.openclaw/workspace/clawhealth_temp
