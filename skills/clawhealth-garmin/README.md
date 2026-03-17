@@ -4,7 +4,7 @@ This folder is the publishable OpenClaw skill package.
 
 - Main instructions: `SKILL.md`
 - Repo overview (recommended reading): `../../README.md`
-- Publish checklist: `PUBLISH.md`
+- Release checklist: `PUBLISH.md`
 
 Quick smoke checks:
 
@@ -12,4 +12,3 @@ Quick smoke checks:
 python {baseDir}/validate_skill.py
 python {baseDir}/test_minimal.py
 ```
-

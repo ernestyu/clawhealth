@@ -7,18 +7,20 @@ Semantic Versioning.
 
 ## [Unreleased]
 
-- (empty)
+- Renamed the OpenClaw skill folder to `skills/clawhealth-garmin/` for consistency with the skill name.
+- Removed ClawHub publish/install references from docs (local GitHub install is the supported path).
+- Updated `garminconnect` dependency to `>=0.2.1,<0.3.0` to align with garth/token-based auth.
 
 ## [0.1.0] - 2026-03-17
 
 ### Added
-- OpenClaw skill packaging (`skills/clawhealth/`).
+- OpenClaw skill packaging (`skills/clawhealth-garmin/`).
 - Skill validation and minimal test scripts.
-- Publish checklist and release template.
+- Release checklist and release template.
 - Stage 2 endpoints: sleep-dump, body-composition, activities, activity-details, menstrual, menstrual-calendar.
 - Raw tables for sleep/body composition/activity/menstrual payloads.
 - Daily summary now includes sleep stages/score and body composition fields.
-- Skill metadata env requirements and a `.clawhubignore` publish filter.
+- A `.clawhubignore` file to help avoid accidentally packaging local secrets/caches.
 
 ### Changed
 - Python dependencies now include upper bounds for stability.

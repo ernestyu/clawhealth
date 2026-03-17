@@ -6,7 +6,7 @@
 supported), syncs health data into a local SQLite DB, and provides JSON-friendly
 commands that OpenClaw agents can call.
 
-The primary deliverable of this repo is the OpenClaw skill at `skills/clawhealth/`.
+The primary deliverable of this repo is the OpenClaw skill at `skills/clawhealth-garmin/`.
 
 Unlike markdown-based Garmin skills, ClawHealth provides structured SQLite + JSON outputs for
 reliable agent workflows and long-term analysis.
@@ -82,23 +82,27 @@ Advanced:
 ### Step 1: Install the skill
 
 OpenClaw loads skills from `<workspace>/skills` (highest precedence) and
-`~/.openclaw/skills` (shared/local). You can install this skill by telling your OpenClaw to fetch from GitHub source (physical placement under your workspace):
+`~/.openclaw/skills` (shared/local). Install this skill by physically placing it under your OpenClaw workspace:
 
 ```bash
 git clone https://github.com/ernestyu/clawhealth.git /home/node/.openclaw/workspace/clawhealth_temp
-mv /home/node/.openclaw/workspace/clawhealth_temp/skills/clawhealth /home/node/.openclaw/workspace/skills/
+mv /home/node/.openclaw/workspace/clawhealth_temp/skills/clawhealth-garmin /home/node/.openclaw/workspace/skills/
 rm -rf /home/node/.openclaw/workspace/clawhealth_temp
 ```
+
+After install, the skill directory is:
+
+- `<skillDir>` = `~/.openclaw/workspace/skills/clawhealth-garmin`
 
 ### Step 2: Dependencies on first run
 
 Native OpenClaw (non-Docker):
-- `run_clawhealth.py` tries to auto-bootstrap Python deps into `skills/clawhealth/.venv` on the first Garmin command.
+- `run_clawhealth.py` tries to auto-bootstrap Python deps into `<skillDir>/.venv` on the first Garmin command.
 - Disable auto-bootstrap with `CLAWHEALTH_AUTO_BOOTSTRAP=0`.
 
 Docker OpenClaw:
 - Recommended: use `ernestyu/openclaw-patched` (deps preinstalled).
-- If you stay on the official image, run `python skills/clawhealth/bootstrap_deps.py` inside the container
+- If you stay on the official image, run `python ~/.openclaw/workspace/skills/clawhealth-garmin/bootstrap_deps.py` inside the container
   (or set `CLAWHEALTH_AUTO_BOOTSTRAP_IN_DOCKER=1` to allow auto-bootstrap).
 
 ### Step 3: Configure username + password
@@ -106,12 +110,12 @@ Docker OpenClaw:
 You have two ways to configure credentials:
 
 - Let OpenClaw write the files for you:
-  Create `skills/clawhealth/.env` and a password file under `skills/clawhealth/` (see `skills/clawhealth/ENV.example`).
+  Create `<skillDir>/.env` and a password file under `<skillDir>/` (see `<skillDir>/ENV.example`).
 - Configure from a terminal (example for a running container):
 
 ```bash
 docker exec -it openclaw sh -c '
-cd ~/.openclaw/workspace/skills/clawhealth &&
+cd ~/.openclaw/workspace/skills/clawhealth-garmin &&
 printf "CLAWHEALTH_GARMIN_USERNAME=you@example.com\nCLAWHEALTH_GARMIN_PASSWORD_FILE=./garmin_pass.txt\n" > .env &&
 printf "YOUR_GARMIN_PASSWORD" > garmin_pass.txt &&
 chmod 600 .env garmin_pass.txt &&
@@ -129,20 +133,21 @@ Notes:
 Login step 1 (triggers MFA, requires username + password source):
 
 ```bash
-python skills/clawhealth/run_clawhealth.py garmin login --username you@example.com --json
+cd ~/.openclaw/workspace/skills/clawhealth-garmin
+python run_clawhealth.py garmin login --username you@example.com --json
 ```
 
 Login step 2 (submit MFA code):
 
 ```bash
-python skills/clawhealth/run_clawhealth.py garmin login --mfa-code 123456 --json
+python run_clawhealth.py garmin login --mfa-code 123456 --json
 ```
 
 Sync and query:
 
 ```bash
-python skills/clawhealth/run_clawhealth.py garmin sync --since 2026-03-01 --until 2026-03-03 --json
-python skills/clawhealth/run_clawhealth.py daily-summary --date 2026-03-03 --json
+python run_clawhealth.py garmin sync --since 2026-03-01 --until 2026-03-03 --json
+python run_clawhealth.py daily-summary --date 2026-03-03 --json
 ```
 
 ### Optional: Advanced endpoints
@@ -150,12 +155,12 @@ python skills/clawhealth/run_clawhealth.py daily-summary --date 2026-03-03 --jso
 Menstrual endpoints are experimental and require garminconnect support.
 
 ```bash
-python skills/clawhealth/run_clawhealth.py garmin sleep-dump --date 2026-03-03 --json
-python skills/clawhealth/run_clawhealth.py garmin body-composition --date 2026-03-03 --json
-python skills/clawhealth/run_clawhealth.py garmin activities --since 2026-03-01 --until 2026-03-03 --json
-python skills/clawhealth/run_clawhealth.py garmin activity-details --activity-id 123456789 --json
-python skills/clawhealth/run_clawhealth.py garmin menstrual --date 2026-03-03 --json
-python skills/clawhealth/run_clawhealth.py garmin menstrual-calendar --since 2026-03-01 --until 2026-03-31 --json
+python run_clawhealth.py garmin sleep-dump --date 2026-03-03 --json
+python run_clawhealth.py garmin body-composition --date 2026-03-03 --json
+python run_clawhealth.py garmin activities --since 2026-03-01 --until 2026-03-03 --json
+python run_clawhealth.py garmin activity-details --activity-id 123456789 --json
+python run_clawhealth.py garmin menstrual --date 2026-03-03 --json
+python run_clawhealth.py garmin menstrual-calendar --since 2026-03-01 --until 2026-03-31 --json
 ```
 
 ## Not Using OpenClaw (Secondary)

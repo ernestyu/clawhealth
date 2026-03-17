@@ -1,4 +1,4 @@
-# Release Template (ClawHub)
+# Release Template
 
 ## Version
 `vX.Y.Z`
@@ -20,11 +20,11 @@ One or two sentences describing the release.
 - None (or describe changes)
 
 ## Verification
-- `python skills/clawhealth/validate_skill.py`
-- `python skills/clawhealth/bootstrap_deps.py` (if needed)
-- `python skills/clawhealth/test_minimal.py`
-- (Optional) `python skills/clawhealth/test_integration_optional.py`
+- `python skills/clawhealth-garmin/validate_skill.py`
+- `python skills/clawhealth-garmin/bootstrap_deps.py` (if needed)
+- `python skills/clawhealth-garmin/test_minimal.py`
+- (Optional) `python skills/clawhealth-garmin/test_integration_optional.py`
 
-## Publish
-- `clawhub login`
-- `clawhub publish skills/clawhealth --slug clawhealth-garmin --name "clawhealth-garmin" --version vX.Y.Z`
+## Release
+- Create a git tag `vX.Y.Z` and push it.
+- Create a GitHub Release using this template.

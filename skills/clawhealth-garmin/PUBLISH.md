@@ -1,4 +1,4 @@
-# ClawHub Publish Checklist
+# Release Checklist
 
 ## 0. Sync vendored code (recommended)
 
@@ -12,7 +12,6 @@ python {baseDir}/sync_vendor.py
 - OpenClaw installed
 - Python 3.10+
 - Optional: network access to install Python deps (unless using a prepatched image)
-- `clawhub` CLI installed (`npm i -g clawhub`)
 
 ## 2. Validate
 ```bash
@@ -34,11 +33,8 @@ python {baseDir}/test_integration_optional.py
 python {baseDir}/bootstrap_deps.py
 ```
 
-## 6. Publish
-```bash
-clawhub login
-clawhub publish {baseDir} --slug clawhealth-garmin --name "clawhealth-garmin" --version 0.1.0
-```
-
-## 7. Release Notes
+## 6. Release Notes
 Use `RELEASE_TEMPLATE.md` at repo root.
+
+## 7. Optional: Package the skill folder
+If you want a single artifact for distribution, zip this folder (`{baseDir}/`) and share the zip.
