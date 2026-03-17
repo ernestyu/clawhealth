@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 REQS = [
-    "garminconnect>=0.1.53,<0.2.0",
+    "garminconnect>=0.2.1,<0.3.0",
     "garth>=0.5.0,<0.6.0",
 ]
 
@@ -49,4 +49,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
