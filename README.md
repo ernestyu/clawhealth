@@ -114,7 +114,7 @@ You have two ways to configure credentials:
 - Configure from a terminal (example for a running container):
 
 ```bash
-docker exec -it openclaw sh -c '
+docker exec -it openclaw bash -c '
 cd ~/.openclaw/workspace/skills/clawhealth-garmin &&
 printf "CLAWHEALTH_GARMIN_USERNAME=you@example.com\nCLAWHEALTH_GARMIN_PASSWORD_FILE=./garmin_pass.txt\n" > .env &&
 printf "YOUR_GARMIN_PASSWORD" > garmin_pass.txt &&
