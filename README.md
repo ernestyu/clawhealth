@@ -1,180 +1,200 @@
-﻿# clawhealth
+# clawhealth
 
 **Languages:** English | [Chinese](README_zh.md)
 
-`clawhealth` is an OpenClaw-first Garmin Connect sync tool. It logs in (MFA
-supported), syncs health data into a local SQLite DB, and provides JSON-friendly
-commands that OpenClaw agents can call.
+`clawhealth` is a Python package and CLI that bridges health data (starting with
+Garmin Connect) into a local **SQLite** database and exposes **JSON‑friendly
+commands**. It is designed to be:
 
-The primary deliverable of this repo is the OpenClaw skill at `skills/clawhealth-garmin/`.
+- A **CLI‑first** health hub: `clawhealth garmin ...` / `clawhealth daily-summary ...`
+- A stable **data layer** for OpenClaw agents and other automation
+- A foundation for future vendors (`garmin`, `huami`, `xiaomi`, ...)
 
-Unlike markdown-based Garmin skills, ClawHealth provides structured SQLite + JSON outputs for
-reliable agent workflows and long-term analysis.
+The same core is also used by the OpenClaw skill
+`skills/clawhealth-garmin/`, but the Python package本身是第一等公民。
 
-## What It Can Do
+---
 
-- Login with Garmin username/password (MFA supported)
-- Sync daily health summaries into SQLite (steps, sleep total, stress, body battery, SpO2, respiration, weight)
-- Fetch sleep stages + sleep score (`garmin sleep-dump`)
-- Fetch HRV (`garmin hrv-dump`) and training readiness/status/endurance/fitness age (`garmin training-metrics`)
-- Fetch body composition metrics (`garmin body-composition`)
-- Fetch activity lists and full activity details (`garmin activities`, `garmin activity-details`)
-- Fetch menstrual day view and calendar range if supported by garminconnect and enabled on the account (experimental)
-- Produce JSON outputs for agent workflows
-- Store raw JSON payloads in SQLite for full-fidelity access
+## Installation (Python package / CLI)
 
-Notes:
+Requirements:
 
-- Some metrics depend on your Garmin device and account settings (e.g., sleep stages, body composition, menstrual data).
-- Menstrual endpoints require garminconnect support; if missing, the command returns `UNSUPPORTED_ENDPOINT`.
+- Python 3.10+
 
-## Security model
+Install from PyPI:
 
-- This skill runs entirely in your local OpenClaw environment.
-- Garmin credentials and session data never leave your machine.
-- No data is sent to the skill author or any third-party service.
-- Prefer using a password file instead of inline passwords.
-- Do not commit `.env`, password files, or local databases.
+```bash
+python -m pip install --upgrade pip  # optional but recommended
+python -m pip install clawhealth
+```
 
-## Example JSON Output
+After installation, you should have a `clawhealth` command:
+
+```bash
+clawhealth --help
+```
+
+Typical help output:
+
+```text
+usage: clawhealth [-h] {garmin,daily-summary} ...
+
+Health data bridge for OpenClaw (CLI-first Garmin hub)
+
+positional arguments:
+  {garmin,daily-summary}
+    garmin          Garmin-related commands
+    daily-summary   Show a summarized view of health metrics for a given date
+
+options:
+  -h, --help        show this help message and exit
+```
+
+---
+
+## Quickstart: Garmin + SQLite
+
+### 1. Configure credentials
+
+`clawhealth` uses the official Garmin Connect login flow via
+[`garminconnect`](https://github.com/cyberjunky/python-garminconnect).
+
+The CLI expects your Garmin email + password. There are two common patterns:
+
+1. **Environment variables / .env** (recommended when running under a process manager)
+2. **Password file** (recommended when embedding into a skill环境)
+
+For a pure CLI session，你可以直接在命令行指定用户名和密码文件，例如：
+
+```bash
+export CLAWHEALTH_GARMIN_USERNAME="you@example.com"
+export CLAWHEALTH_GARMIN_PASSWORD_FILE="/secure/path/garmin_pass.txt"
+
+# 或者在命令行参数中显式传入
+clawhealth garmin login --username you@example.com --password-file /secure/path/garmin_pass.txt --json
+```
+
+> 提示：不要把密码文件放进 git 仓库，注意文件权限（例如 `chmod 600`）。
+
+### 2. Login (MFA)
+
+登录通常分两步完成：
+
+```bash
+# 第一步：触发登录与 MFA 挑战
+clawhealth garmin login --json
+
+# 第二步：在收到验证码后提交 MFA
+clawhealth garmin login --mfa-code 123456 --json
+```
+
+成功后，clawhealth 会在本地 config 目录中缓存 Garmin 会话信息（具体位置会在 JSON 输出中给出），后续命令无需重新输入密码。
+
+### 3. 同步数据到 SQLite
+
+`clawhealth` 默认会在一个本地 SQLite 数据库中维护健康数据（UHM schema）。
+
+同步最近几天的数据，例如：
+
+```bash
+# 同步 2026-03-17 ~ 2026-03-19 的健康数据
+clawhealth garmin sync --since 2026-03-17 --until 2026-03-19 --json
+```
+
+返回的 JSON 会包含：
+
+- `ok`: 是否成功
+- `synced_dates`: 实际同步的日期列表
+- `db`: SQLite 数据库路径（例如 `.../data/health.db`）
+
+### 4. 查询 daily-summary（给 Agent / 自动化用）
+
+一旦完成同步，你可以按日期查询汇总指标：
+
+```bash
+clawhealth daily-summary --date 2026-03-19 --json
+```
+
+示例输出（简化）：
 
 ```json
 {
   "ok": true,
-  "date": "2026-03-16",
-  "sleep_total_min": 410,
-  "sleep_score": 78,
+  "date": "2026-03-19",
+  "sleep_total_min": 403,
   "rhr_bpm": 58,
-  "hrv_last_night_avg": 42,
-  "training_readiness_score": 65,
-  "training_status_feedback": "Maintaining",
-  "endurance_overall_score": 72,
+  "steps": 4237,
+  "distance_m": 3299.0,
+  "calories_total": 1746.0,
+  "stress_avg": 42,
+  "stress_max": 96,
+  "body_battery_start": 43.0,
+  "body_battery_end": 5.0,
+  "spo2_avg": 98.0,
   "mapping_version": "uhm_v1"
 }
 ```
 
-Designed for direct agent consumption (stable JSON schema).
+这个 JSON 结构是为 Agent/自动化设计的：字段稳定，可直接喂给 LLM 或存入你自己的数据仓库。
+
+---
 
 ## Command Overview
 
-Core:
-- `daily-summary`
-- `garmin trend-summary`
+核心命令（CLI / Agent 都可用）：
 
-Advanced:
-- `garmin training-metrics`
-- `garmin sleep-dump`
-- `garmin body-composition`
-- `garmin activities`
-- `garmin activity-details`
-- `garmin hrv-dump`
-- `garmin menstrual`
-- `garmin menstrual-calendar`
+- `clawhealth daily-summary --date YYYY-MM-DD --json`
+- `clawhealth garmin sync --since YYYY-MM-DD --until YYYY-MM-DD --json`
 
-## Minimal Workflow Example
+高级命令（按需调用）：
 
-1. `clawhealth daily-summary --json`
-2. feed into agent
-3. generate daily health report
+- `clawhealth garmin training-metrics --json`
+- `clawhealth garmin sleep-dump --date YYYY-MM-DD --json`
+- `clawhealth garmin body-composition --date YYYY-MM-DD --json`
+- `clawhealth garmin activities --since ... --until ... --json`
+- `clawhealth garmin activity-details --activity-id 123456789 --json`
+- `clawhealth garmin hrv-dump --date YYYY-MM-DD --json`
+- `clawhealth garmin menstrual --date YYYY-MM-DD --json`
+- `clawhealth garmin menstrual-calendar --since ... --until ... --json`
 
-## OpenClaw (Primary)
+> 注意：部分指标依赖你的设备型号和 Garmin 账号设置（例如睡眠分期、体脂、女性健康）。
 
-### Step 1: Install the skill
+---
 
-OpenClaw loads skills from `<workspace>/skills` (highest precedence) and
-`~/.openclaw/skills` (shared/local). Install this skill by physically placing it under your OpenClaw workspace:
+## Security model
 
-```bash
-git clone https://github.com/ernestyu/clawhealth.git /home/node/.openclaw/workspace/clawhealth_temp
-mv /home/node/.openclaw/workspace/clawhealth_temp/skills/clawhealth-garmin /home/node/.openclaw/workspace/skills/
-rm -rf /home/node/.openclaw/workspace/clawhealth_temp
-```
+- 所有操作都在你的本地环境执行。
+- Garmin 凭据和会话 token 不会发送给第三方服务。
+- SQLite DB 存在本地（默认路径会在 JSON 输出中给出）。
+- 强烈建议使用密码文件或安全的环境变量管理方式（如 1Password/Bitwarden），不要把密码硬编码在脚本里。
 
-After install, the skill directory is:
+---
 
-- `<skillDir>` = `~/.openclaw/workspace/skills/clawhealth-garmin`
+## Using clawhealth as an OpenClaw skill
 
-### Step 2: Dependencies on first run
+如果你在使用 OpenClaw，并希望通过 Telegram 等界面与 Garmin 健康数据交互，可以使用随仓库提供的技能包：
 
-Native OpenClaw (non-Docker):
-- `run_clawhealth.py` tries to auto-bootstrap Python deps into `<skillDir>/.venv` on the first Garmin command.
-- Disable auto-bootstrap with `CLAWHEALTH_AUTO_BOOTSTRAP=0`.
+- 目录：`skills/clawhealth-garmin/`
+- 主要说明：`skills/clawhealth-garmin/SKILL.md`
+- ClawHub 条目：`clawhealth-garmin`
 
-Docker OpenClaw:
-- Recommended: use `ernestyu/openclaw-patched` (deps preinstalled).
-- If you stay on the official image, run `python ~/.openclaw/workspace/skills/clawhealth-garmin/bootstrap_deps.py` inside the container
-  (or set `CLAWHEALTH_AUTO_BOOTSTRAP_IN_DOCKER=1` to allow auto-bootstrap).
-
-### Step 3: Configure username + password
-
-You have two ways to configure credentials:
-
-- Let OpenClaw write the files for you:
-  Create `<skillDir>/.env` and a password file under `<skillDir>/` (see `<skillDir>/ENV.example`).
-- Configure from a terminal (example for a running container):
+典型安装路径（ClawHub）：
 
 ```bash
-docker exec -it openclaw bash -c '
-cd ~/.openclaw/workspace/skills/clawhealth-garmin &&
-printf "CLAWHEALTH_GARMIN_USERNAME=you@example.com\nCLAWHEALTH_GARMIN_PASSWORD_FILE=./garmin_pass.txt\n" > .env &&
-printf "YOUR_GARMIN_PASSWORD" > garmin_pass.txt &&
-chmod 600 .env garmin_pass.txt &&
-echo "Configuration completed. Return to your chat UI and trigger login."
-'
+npx clawhub@latest install clawhealth-garmin --force
 ```
 
-Notes:
+安装完成后，OpenClaw 会从 `<workspace>/skills/clawhealth-garmin` 加载这个技能，具体的 `.env` / 密码文件配置、MFA 登录流程，请参考 `skills/clawhealth-garmin/SKILL.md`。
 
-- Relative paths in env vars (like `./garmin_pass.txt`) are resolved relative to the skill directory by `run_clawhealth.py`.
-- Keep `.env` and password files out of git and protect file permissions.
+> 总结：**包级 README = 讲 Python 包和 CLI，技能级 README/SKILL = 讲 OpenClaw 集成。**
 
-### Step 4: Login (MFA) and sync
-
-Login step 1 (triggers MFA, requires username + password source):
-
-```bash
-cd ~/.openclaw/workspace/skills/clawhealth-garmin
-python run_clawhealth.py garmin login --username you@example.com --json
-```
-
-Login step 2 (submit MFA code):
-
-```bash
-python run_clawhealth.py garmin login --mfa-code 123456 --json
-```
-
-Sync and query:
-
-```bash
-python run_clawhealth.py garmin sync --since 2026-03-01 --until 2026-03-03 --json
-python run_clawhealth.py daily-summary --date 2026-03-03 --json
-```
-
-### Optional: Advanced endpoints
-
-Menstrual endpoints are experimental and require garminconnect support.
-
-```bash
-python run_clawhealth.py garmin sleep-dump --date 2026-03-03 --json
-python run_clawhealth.py garmin body-composition --date 2026-03-03 --json
-python run_clawhealth.py garmin activities --since 2026-03-01 --until 2026-03-03 --json
-python run_clawhealth.py garmin activity-details --activity-id 123456789 --json
-python run_clawhealth.py garmin menstrual --date 2026-03-03 --json
-python run_clawhealth.py garmin menstrual-calendar --since 2026-03-01 --until 2026-03-31 --json
-```
-
-## Not Using OpenClaw (Secondary)
-
-If you want to run the CLI directly:
-
-```bash
-python -m pip install -e .
-clawhealth --help
-```
+---
 
 ## Roadmap
 
-See `ROADMAP.md`.
+See `ROADMAP.md` for planned vendors (e.g. Huami/Xiaomi) and schema evolution.
+
+---
 
 ## License
 
