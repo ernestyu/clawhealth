@@ -178,4 +178,4 @@ See `ROADMAP.md`.
 
 ## License
 
-MIT
+Apache-2.0
