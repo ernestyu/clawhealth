@@ -1,0 +1,2 @@
+[console_scripts]
+clawhealth = clawhealth.cli:main
